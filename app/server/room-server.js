@@ -76,6 +76,8 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
   const perIp = new Map(); // ip -> число соединений
   let httpsServer = null;
   let heartbeat = null;
+  // Права владельца только у владельца, который подключён с этого же компьютера (адрес 127.0.0.1 или ::1).
+  const isOwner = (m) => !!ownerUid && m.uid === ownerUid && /^(127\.|::1$)/.test(m.ws.ip || '');
   const channels = DEFAULT_CHANNELS.map((c) => ({ ...c }));
   const history = new Map(channels.filter((c) => c.type === 'text').map((c) => [c.id, []]));
   const members = new Map(); // sid -> member
@@ -188,7 +190,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
     members.set(m.sid, m);
     ws.sid = m.sid;
     send(ws, {
-      t: 'welcome', sid: m.sid, me: pubId(uid), owner: !!ownerUid && uid === ownerUid,
+      t: 'welcome', sid: m.sid, me: pubId(uid), owner: isOwner(m),
       room: { name: room.name, banner: room.banner, channels },
       members: [...members.values()].map(pub),
       history: Object.fromEntries(history), voice: voiceState(),
@@ -212,7 +214,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         break;
       case 'room-set': {
         // Название и баннер комнаты меняет только владелец (тот, кто её запустил).
-        if (!ownerUid || m.uid !== ownerUid) { send(ws, { t: 'error', text: 'Менять комнату может только владелец' }); return; }
+        if (!isOwner(m)) { send(ws, { t: 'error', text: 'Менять комнату может только владелец' }); return; }
         if (typeof msg.name === 'string' && msg.name.trim()) room.name = str(msg.name, 40).trim();
         if ('banner' in msg) room.banner = sanitizeImageUrl(msg.banner);
         saveHistory();
@@ -221,7 +223,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       }
       case 'kick': {
         // Исключить или заблокировать участника может только владелец.
-        if (!ownerUid || m.uid !== ownerUid) { send(ws, { t: 'error', text: 'Это может сделать только владелец' }); return; }
+        if (!isOwner(m)) { send(ws, { t: 'error', text: 'Это может сделать только владелец' }); return; }
         const target = members.get(msg.sid);
         if (!target || target === m) return;
         // Адрес блокируется, кроме локального: иначе владелец мог бы запереть сам себя.

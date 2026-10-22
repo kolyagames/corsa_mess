@@ -103,8 +103,17 @@
   }
 
   // ---------- Подключение ----------
-  function helloPayload() {
-    return { uid: S.uid, status: S.status, activity: S.activity, ...profileFields(S.profile) };
+  // Личный секрет S.uid никому не отправляется. Каждому серверу показывается свой идентификатор, посчитанный
+  // из секрета и адреса сервера: вражеский сервер не сможет использовать его на других серверах.
+  async function deriveUid(host, port) {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', enc.encode(S.uid), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(`${String(host).toLowerCase()}:${port}`)));
+    return [...sig].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function helloPayload(uid) {
+    return { uid, status: S.status, activity: S.activity, ...profileFields(S.profile) };
   }
 
   function roomCode(host, port) {
@@ -136,7 +145,7 @@
     if (S.conn) await disconnect();
     const known = S.rooms.find((r) => r.host === addr.host && r.port === addr.port);
     const password = opts.password || (known && known.pw) || '';
-    const client = new C.RoomClient({ host: addr.host, port: addr.port, hello: helloPayload(), password });
+    const client = new C.RoomClient({ host: addr.host, port: addr.port, hello: helloPayload(await deriveUid(addr.host, addr.port)), password });
     try { await client.connect(); } catch (e) {
       if ((e.code === 'need-password' || e.code === 'bad-password') && attempt < 4) {
         const res = await askPassword(addr, e.code === 'bad-password');
@@ -454,7 +463,8 @@
         h('div', { class: 'hint' }, 'С паролем в комнату войдут только те, кто его знает. Пароль не передаётся по сети.'),
         h('div', { class: 'row', style: { marginTop: '16px' } }, h('button', { class: 'btn primary', onclick: async () => {
           try {
-            S.hosting = await native.hostStart({ name: roomName.value, port: Number(port.value), ownerUid: S.uid, password: netPass.value });
+            // Владелец узнаётся по идентификатору для адреса 127.0.0.1: его знает только этот компьютер.
+            S.hosting = await native.hostStart({ name: roomName.value, port: Number(port.value), ownerUid: await deriveUid('127.0.0.1', Number(port.value)), password: netPass.value });
             S.hostPassword = netPass.value;
             await connectTo({ host: '127.0.0.1', port: S.hosting.port }, { password: S.hostPassword });
             renderMain();

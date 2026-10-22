@@ -3,6 +3,7 @@
 <p align="center">
   <a href="https://github.com/kolyagames/corsa_mess/releases/latest"><b>Скачать для Windows</b></a> ·
   <a href="#быстрый-старт">Быстрый старт</a> ·
+  <a href="https://kolyagames.github.io/corsa_mess/">Сайт</a> ·
   <a href="app/README.md">Безопасность</a>
 </p>
 

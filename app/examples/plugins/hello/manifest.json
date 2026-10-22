@@ -1,0 +1,7 @@
+{
+  "name": "Привет",
+  "version": "1.0.0",
+  "description": "Пример плагина: команда /dice бросает кубик, /help показывает команды.",
+  "author": "corsa-mess",
+  "main": "index.js"
+}

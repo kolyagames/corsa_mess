@@ -1,0 +1,21 @@
+{
+  "name": "corsa-mess",
+  "version": "0.1.0",
+  "description": "corsa-mess: open-source P2P messenger with plugins, themes, voice and screen sharing",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/run.js",
+    "icon": "node scripts/make-ico.js",
+    "pack": "npm run icon && electron-packager . corsa-mess --platform=win32 --arch=x64 --out=../dist --overwrite --asar --icon=build/icon.ico --ignore=\"(^/test)|(^/scripts)|(^/dist)\""
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^45.0.0"
+  },
+  "dependencies": {
+    "selfsigned": "^5.5.0",
+    "ws": "^8.22.0"
+  }
+}

@@ -1,0 +1,13 @@
+/* @name Матовый */
+/* @description Плоские чёрные панели без свечения. Пример темы на переменных. */
+:root {
+  --bg-0: #08080a;
+  --bg-1: #0d0d0f;
+  --bg-2: #111114;
+  --panel: #1a1a1e;
+  --panel-hi: #24242a;
+  --glow: transparent;
+  --glow-soft: transparent;
+}
+body { background: var(--bg-1); }
+.btn.primary, .rail-btn.logo { box-shadow: none; }

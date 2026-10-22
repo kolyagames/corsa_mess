@@ -1,0 +1,11 @@
+/* @name Багровое стекло */
+/* @description Вишнёвый градиент и полупрозрачные панели. */
+:root {
+  --bg-0: rgba(255, 255, 255, 0.04);
+  --bg-2: rgba(255, 255, 255, 0.06);
+  --panel: rgba(255, 255, 255, 0.09);
+  --panel-hi: rgba(255, 255, 255, 0.14);
+}
+body { background: linear-gradient(135deg, #4a0f1d, #1a0509 55%, #3a0a14); }
+#titlebar { background: rgba(0, 0, 0, 0.3); }
+.modal, .sticker-pop { backdrop-filter: blur(18px); background: rgba(26, 5, 9, 0.85); }

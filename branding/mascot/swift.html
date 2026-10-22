@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Стриж — маскот corsa-mess</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#07020300}
+  body{background:radial-gradient(ellipse at 50% 45%,#2a0409 0%,#0d0204 55%,#030001 100%);font-family:system-ui,sans-serif}
+  canvas{display:block;width:100%;height:100%}
+  .hint{position:fixed;left:0;right:0;bottom:14px;text-align:center;color:#ff5a66;opacity:.55;font-size:13px;letter-spacing:.08em;pointer-events:none}
+</style>
+</head>
+<body>
+<div class="hint">СТРИЖ · маскот corsa-mess — двигай мышью</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  var W=innerWidth,H=innerHeight;
+  var renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.setSize(W,H);
+  renderer.outputEncoding=THREE.sRGBEncoding;
+  document.body.appendChild(renderer.domElement);
+
+  var scene=new THREE.Scene();
+  var camera=new THREE.PerspectiveCamera(35,W/H,0.1,100);
+  camera.position.set(1.2,1.0,9.2);
+  camera.lookAt(0,0.1,0);
+
+  // свет
+  scene.add(new THREE.HemisphereLight(0xff6070,0x120204,0.3));
+  var key=new THREE.DirectionalLight(0xffd0d0,0.9); key.position.set(-3,5,6); scene.add(key);
+  var rim=new THREE.PointLight(0xff1020,18,20); rim.position.set(4,1,-4); scene.add(rim);
+  var rim2=new THREE.PointLight(0xff3040,25,20); rim2.position.set(-5,-2,-2); scene.add(rim2);
+
+  var red=new THREE.MeshPhysicalMaterial({color:0x7a0008,roughness:0.2,metalness:0.15,clearcoat:1,clearcoatRoughness:0.05,emissive:0x140002,side:THREE.DoubleSide});
+  var dark=new THREE.MeshStandardMaterial({color:0x1b0508,roughness:0.35,metalness:0.4});
+  var glowMat=new THREE.MeshBasicMaterial({color:0xff2a35});
+  var edgeMat=new THREE.LineBasicMaterial({color:0xff4a55});
+
+  var bird=new THREE.Group(); scene.add(bird);
+
+  // тело: каплевидный профиль, ось вдоль X (голова в +X)
+  var prof=new THREE.SplineCurve([
+    new THREE.Vector2(0.0,-1.4),new THREE.Vector2(0.08,-1.15),new THREE.Vector2(0.24,-0.6),
+    new THREE.Vector2(0.44,-0.05),new THREE.Vector2(0.5,0.35),new THREE.Vector2(0.43,0.75),
+    new THREE.Vector2(0.28,1.0),new THREE.Vector2(0.0,1.12)]).getPoints(48);
+  var body=new THREE.Mesh(new THREE.LatheGeometry(prof,56),red);
+  body.rotation.z=-Math.PI/2; bird.add(body);
+
+  // голова
+  var head=new THREE.Mesh(new THREE.SphereGeometry(0.34,32,24),red);
+  head.scale.set(1.15,1,0.95); head.position.set(0.92,0.12,0); bird.add(head);
+  // клюв
+  var beak=new THREE.Mesh(new THREE.ConeGeometry(0.1,0.42,20),dark);
+  beak.rotation.z=-Math.PI/2; beak.position.set(1.4,0.04,0); bird.add(beak);
+
+  // глаза и злые брови
+  [-1,1].forEach(function(s){
+    var eye=new THREE.Mesh(new THREE.SphereGeometry(0.075,20,16),new THREE.MeshBasicMaterial({color:0xffe9e9}));
+    eye.scale.set(1.3,0.8,0.5); eye.position.set(1.08,0.17,0.27*s); eye.rotation.y=-0.3*s; bird.add(eye);
+    var pup=new THREE.Mesh(new THREE.SphereGeometry(0.035,14,12),new THREE.MeshBasicMaterial({color:0x200000}));
+    pup.position.set(1.12,0.17,0.31*s); bird.add(pup);
+    var brow=new THREE.Mesh(new THREE.BoxGeometry(0.34,0.035,0.05),dark);
+    brow.position.set(1.05,0.29,0.27*s); brow.rotation.z=-0.35; brow.rotation.x=0.0; bird.add(brow);
+  });
+
+  // ядро-ромб на груди
+  var core=new THREE.Mesh(new THREE.OctahedronGeometry(0.2,0),glowMat);
+  core.scale.set(0.8,1.15,0.8); core.position.set(0.62,-0.12,0.44); bird.add(core);
+  var coreLight=new THREE.PointLight(0xff1020,6,3); coreLight.position.copy(core.position); bird.add(coreLight);
+  var coreGlass=new THREE.Mesh(new THREE.OctahedronGeometry(0.28,0),new THREE.MeshPhysicalMaterial({color:0xff2030,transparent:true,opacity:0.28,roughness:0.05,clearcoat:1}));
+  coreGlass.scale.copy(core.scale); coreGlass.position.copy(core.position); bird.add(coreGlass);
+
+  function blade(shape,depth){
+    var g=new THREE.ExtrudeGeometry(shape,{depth:depth,bevelEnabled:true,bevelThickness:0.03,bevelSize:0.03,bevelSegments:3,curveSegments:24});
+    return g;
+  }
+  function addEdges(mesh){
+    var e=new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry,25),edgeMat);
+    mesh.add(e);
+  }
+
+  // крылья-лезвия
+  var ws=new THREE.Shape();
+  ws.moveTo(0.55,0.0);
+  ws.quadraticCurveTo(0.2,1.2,-1.6,2.5);
+  ws.quadraticCurveTo(-0.45,1.1,-1.0,0.1);
+  ws.lineTo(0.55,0.0);
+  var wings=[];
+  [1,-1].forEach(function(s){
+    var pivot=new THREE.Group();
+    pivot.position.set(0.3,0.28,0.22*s);
+    var m=new THREE.Mesh(blade(ws,0.06),red);
+    m.rotation.x=Math.PI/2*s; // ось Y контура -> наружу по Z
+    m.scale.set(0.72,0.72,s<0?-0.72:0.72);
+    addEdges(m);
+    pivot.add(m); bird.add(pivot); wings.push({p:pivot,s:s});
+  });
+
+  // хвост-вилка
+  var ts=new THREE.Shape();
+  ts.moveTo(0.15,0.17);
+  ts.lineTo(-2.0,0.75); ts.lineTo(-1.35,0.07);
+  ts.lineTo(-2.0,-0.75); ts.lineTo(0.15,-0.17); ts.lineTo(0.15,0.17);
+  var tail=new THREE.Mesh(blade(ts,0.05),red);
+  tail.rotation.x=Math.PI/2; tail.position.set(-1.05,-0.08,0.0);
+  addEdges(tail); bird.add(tail);
+
+  bird.rotation.y=-0.55;
+  bird.scale.setScalar(1.15);
+
+  // ореол
+  function glowTex(){
+    var c=document.createElement('canvas'); c.width=c.height=256; var x=c.getContext('2d');
+    var g=x.createRadialGradient(128,128,0,128,128,128);
+    g.addColorStop(0,'rgba(255,40,50,0.85)'); g.addColorStop(0.35,'rgba(200,10,25,0.35)'); g.addColorStop(1,'rgba(120,0,10,0)');
+    x.fillStyle=g; x.fillRect(0,0,256,256); return new THREE.CanvasTexture(c);
+  }
+  var halo=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex(),blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,opacity:0.55}));
+  halo.scale.set(9,9,1); halo.position.set(0,0,-2.5); scene.add(halo);
+
+  // искры
+  var N=220,pos=new Float32Array(N*3),vel=[];
+  for(var i=0;i<N;i++){
+    pos[i*3]=(Math.random()-.5)*12; pos[i*3+1]=(Math.random()-.5)*8; pos[i*3+2]=(Math.random()-.5)*8-1;
+    vel.push(0.2+Math.random()*0.6);
+  }
+  var pg=new THREE.BufferGeometry(); pg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  var sparks=new THREE.Points(pg,new THREE.PointsMaterial({color:0xff4050,size:0.06,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false}));
+  scene.add(sparks);
+
+  var mx=0,my=0;
+  addEventListener('pointermove',function(e){mx=e.clientX/innerWidth*2-1;my=e.clientY/innerHeight*2-1;});
+  addEventListener('resize',function(){W=innerWidth;H=innerHeight;renderer.setSize(W,H);camera.aspect=W/H;camera.updateProjectionMatrix();});
+
+  var clock=new THREE.Clock();
+  function frame(){
+    var t=clock.getElapsedTime();
+    var flap=Math.sin(t*5.0);
+    wings.forEach(function(w){ w.p.rotation.x=w.s*(0.15+0.65*flap); w.p.rotation.z=-0.12*flap; });
+    bird.position.y=Math.sin(t*2.5)*0.12;
+    bird.rotation.y+=((-0.55+mx*0.7)-bird.rotation.y)*0.05;
+    bird.rotation.z+=((-my*0.2+Math.sin(t*2.5)*0.04)-bird.rotation.z)*0.05;
+    var p=1+0.25*Math.sin(t*3);
+    core.scale.set(0.8*p,1.15*p,0.8*p); coreLight.intensity=5+3*Math.sin(t*3);
+    core.rotation.y=t*0.8; coreGlass.rotation.y=t*0.8;
+    var a=pg.attributes.position;
+    for(var i=0;i<N;i++){ a.array[i*3+1]+=vel[i]*0.012; if(a.array[i*3+1]>4.2)a.array[i*3+1]=-4.2; }
+    a.needsUpdate=true;
+    renderer.render(scene,camera);
+    requestAnimationFrame(frame);
+  }
+  frame();
+})();
+</script>
+</body>
+</html>

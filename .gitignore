@@ -1,0 +1,8 @@
+node_modules/
+dist/
+app/build/
+.superpowers/
+*.blend1
+*.log
+.DS_Store
+Thumbs.db

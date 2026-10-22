@@ -107,8 +107,10 @@
 
     openPeer(sid) {
       const pc = new RTCPeerConnection({ iceServers: this.iceServers() });
+      // Роли заданы заранее: первое предложение соединения всегда шлёт участник с меньшим идентификатором.
+      // Так при входе в канал не бывает встречных предложений, на которых соединение могло зависнуть.
       const peer = {
-        pc, polite: this.client.sid > sid, makingOffer: false, ignoreOffer: false, senders: new Map(), streams: new Map(),
+        pc, polite: this.client.sid > sid, initiator: this.client.sid < sid, makingOffer: false, ignoreOffer: false, senders: new Map(), streams: new Map(),
       };
       this.peers.set(sid, peer);
       if (this.micStream) for (const t of this.micStream.getTracks()) peer.senders.set(t.id, pc.addTrack(t, this.micStream));
@@ -116,6 +118,8 @@
 
       pc.onicecandidate = (e) => { if (e.candidate) this.client.send({ t: 'rtc', to: sid, data: { candidate: e.candidate } }); };
       pc.onnegotiationneeded = async () => {
+        // Тот, кто не инициатор, дожидается первого предложения: его дорожки попадут в ответ.
+        if (!peer.initiator && !pc.remoteDescription) return;
         try {
           peer.makingOffer = true;
           await pc.setLocalDescription();

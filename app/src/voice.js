@@ -105,14 +105,21 @@
       return stun ? [{ urls: stun }] : [];
     }
 
-    openPeer(sid) {
+    openPeer(sid, retries = 0) {
+      if (!this.client.sid || sid === this.client.sid) return null;
       const pc = new RTCPeerConnection({ iceServers: this.iceServers() });
       // Роли заданы заранее: первое предложение соединения всегда шлёт участник с меньшим идентификатором.
       // Так при входе в канал не бывает встречных предложений, на которых соединение могло зависнуть.
       const peer = {
         pc, polite: this.client.sid > sid, initiator: this.client.sid < sid, makingOffer: false, ignoreOffer: false, senders: new Map(), streams: new Map(),
       };
+      peer.retries = retries;
       this.peers.set(sid, peer);
+      // Сторожевой таймер: если за 15 секунд соединение не поднялось (потерянное предложение, зависший сбор адресов),
+      // соединение пересоздаётся, до трёх попыток.
+      peer.watchdog = setTimeout(() => {
+        if (this.peers.get(sid) === peer && pc.connectionState !== 'connected') this.recover(sid, peer.retries);
+      }, 15000);
       if (this.micStream) for (const t of this.micStream.getTracks()) peer.senders.set(t.id, pc.addTrack(t, this.micStream));
       if (this.screenStream) for (const t of this.screenStream.getTracks()) peer.senders.set(t.id, pc.addTrack(t, this.screenStream));
 
@@ -135,13 +142,25 @@
         e.track.onended = () => this.onChange();
         this.onChange();
       };
-      pc.onconnectionstatechange = () => this.onChange();
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'failed' && this.peers.get(sid) === peer) this.recover(sid, peer.retries);
+        this.onChange();
+      };
       return peer;
+    }
+
+    // Пересоздаёт соединение с участником, если он всё ещё в нашем канале и попыток не больше трёх.
+    recover(sid, retries) {
+      this.closePeer(sid);
+      if (retries >= 3 || !this.channel || !(this.client.voice[this.channel] || []).includes(sid)) { this.onChange(); return; }
+      this.openPeer(sid, retries + 1);
+      this.onChange();
     }
 
     closePeer(sid) {
       const peer = this.peers.get(sid);
       if (!peer) return;
+      clearTimeout(peer.watchdog);
       for (const id of peer.streams.keys()) {
         const el = this.audioEls.get(id);
         if (el) { el.srcObject = null; el.remove(); this.audioEls.delete(id); }
@@ -153,8 +172,19 @@
     }
 
     async onSignal(from, data) {
-      if (!this.channel) return;
-      const peer = this.peers.get(from) || this.openPeer(from);
+      if (!this.channel || !data || typeof data !== 'object') return;
+      let peer = this.peers.get(from);
+      if (!peer) {
+        // Соединение создаётся только по настоящему предложению: одиночные «кандидаты» от неизвестного не создают записей.
+        if (!data.description) return;
+        peer = this.openPeer(from);
+        if (!peer) return;
+      } else if (data.description && data.description.type === 'offer' && !peer.initiator && peer.pc.remoteDescription && peer.pc.connectionState !== 'connected') {
+        // Инициатор начал заново, а наше прежнее соединение так и не поднялось: начинаем с чистого листа.
+        this.closePeer(from);
+        peer = this.openPeer(from, peer.retries);
+        if (!peer) return;
+      }
       const pc = peer.pc;
       if (data.description) {
         const d = data.description;

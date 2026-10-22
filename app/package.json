@@ -1,6 +1,6 @@
 {
   "name": "corsa-mess",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "corsa-mess: open-source P2P messenger with plugins, themes, voice and screen sharing",
   "main": "main.js",
   "scripts": {

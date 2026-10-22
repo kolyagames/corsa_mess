@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>corsa-mess — свой мессенджер без серверов</title>
+  <meta name="description" content="Открытый мессенджер для друзей: чат, голос и показ экрана напрямую, без серверов. Плагины, темы, шифрование.">
+  <meta property="og:title" content="corsa-mess — свой мессенджер без серверов">
+  <meta property="og:description" content="Чат, голос и показ экрана напрямую между друзьями. Открытый код, шифрование, плагины и темы.">
+  <link rel="icon" href="logo.png">
+  <style>
+    @font-face { font-family: 'Nunito'; font-weight: 200 1000; src: url(fonts/nunito-cyr.woff2) format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+    @font-face { font-family: 'Nunito'; font-weight: 200 1000; src: url(fonts/nunito-lat.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212; }
+
+    :root {
+      --bg: #08060a; --text: #f4e9ea; --muted: #8f7d82; --dim: #5e4f54;
+      --red: #ff2a44; --red-soft: #ff6a7e; --line: rgba(255, 255, 255, .08);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text); font-family: 'Nunito', 'Segoe UI', system-ui, sans-serif;
+      font-weight: 400; line-height: 1.55; overflow-x: hidden;
+    }
+    body::before {
+      content: ''; position: fixed; inset: 0; z-index: -2; pointer-events: none;
+      background:
+        radial-gradient(ellipse 70% 45% at 50% 108%, rgba(255, 42, 68, .26), transparent 70%),
+        radial-gradient(ellipse 80% 60% at 50% 30%, #14070c, #08060a 70%);
+    }
+    body::after {
+      content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+      background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+      background-size: 64px 64px;
+      -webkit-mask-image: radial-gradient(ellipse at 50% 35%, #000 20%, transparent 75%); mask-image: radial-gradient(ellipse at 50% 35%, #000 20%, transparent 75%);
+      opacity: .6;
+    }
+    a { color: inherit; text-decoration: none; }
+    .wrap { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+
+    nav { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+    .brand img { width: 30px; height: 30px; }
+    .links { display: flex; gap: 26px; color: var(--muted); font-size: 15px; }
+    .links a:hover { color: var(--text); }
+
+    .hero { position: relative; text-align: center; padding: 70px 0 90px; }
+    .ghost { position: absolute; pointer-events: none; border-radius: 22px; background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 42, 68, .3); filter: blur(5px); opacity: .8; }
+    .ghost.l { left: -190px; top: 60px; width: 330px; height: 360px; transform: rotate(-9deg); padding: 24px; }
+    .ghost.r { right: -200px; bottom: 20px; width: 330px; height: 240px; transform: rotate(7deg); background: rgba(255, 42, 68, .12); filter: blur(10px); opacity: .45; }
+    .ghost i { display: block; height: 14px; border-radius: 7px; background: rgba(255, 255, 255, .25); margin-bottom: 16px; }
+    .ghost i.a { width: 60%; background: rgba(255, 42, 68, .85); }
+    .ghost i.b { width: 85%; height: 46px; border-radius: 12px; background: rgba(255, 255, 255, .08); }
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px 6px 10px; border-radius: 999px; font-weight: 600; font-size: 15px;
+      color: #ff8a9a; background: rgba(255, 42, 68, .1); border: 1px solid rgba(255, 42, 68, .5);
+    }
+    .badge img { width: 22px; height: 22px; }
+    h1 {
+      margin: 30px 0 0; font-weight: 300; letter-spacing: -.025em; line-height: 1.04;
+      font-size: clamp(46px, 9vw, 112px); background: linear-gradient(#fff, #f0d9dc); -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .lead { margin: 28px auto 0; max-width: 640px; font-size: clamp(17px, 2.2vw, 24px); font-weight: 300; color: var(--muted); }
+    .lead b { font-weight: 700; color: var(--red-soft); }
+    .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 40px; }
+    .btn { display: inline-block; padding: 14px 30px; border-radius: 999px; font-weight: 700; font-size: 17px; transition: transform .15s, box-shadow .2s, background .2s; }
+    .btn:hover { transform: translateY(-2px); }
+    .btn.primary { background: linear-gradient(135deg, var(--red), #b3142c); color: #fff; box-shadow: 0 8px 40px rgba(255, 42, 68, .35); }
+    .btn.primary:hover { box-shadow: 0 10px 50px rgba(255, 42, 68, .55); }
+    .btn.ghost-btn { border: 1px solid rgba(255, 255, 255, .18); color: var(--text); }
+    .btn.ghost-btn:hover { background: rgba(255, 255, 255, .06); }
+    .note { margin-top: 18px; font-size: 14px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+
+    section { padding: 70px 0; }
+    h2 { margin: 0 0 12px; font-weight: 300; font-size: clamp(32px, 5vw, 54px); letter-spacing: -.02em; text-align: center; }
+    .sub { text-align: center; color: var(--muted); font-weight: 300; font-size: 19px; margin: 0 auto 46px; max-width: 560px; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .card {
+      padding: 26px; border-radius: 20px; background: rgba(255, 255, 255, .04); border: 1px solid var(--line);
+      transition: transform .2s, border-color .2s, background .2s;
+    }
+    .card:hover { transform: translateY(-4px); border-color: rgba(255, 42, 68, .45); background: rgba(255, 42, 68, .06); }
+    .card .ic { font-size: 28px; }
+    .card h3 { margin: 12px 0 6px; font-size: 20px; font-weight: 700; }
+    .card p { margin: 0; color: var(--muted); font-weight: 300; font-size: 16px; }
+
+    .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+    .steps .card ol { margin: 14px 0 0; padding-left: 22px; color: var(--muted); font-weight: 300; }
+    .steps .card li { margin: 8px 0; }
+    .steps .card li b { color: var(--text); font-weight: 600; }
+    code { background: rgba(255, 42, 68, .12); border: 1px solid rgba(255, 42, 68, .3); color: #ffb0ba; padding: 1px 8px; border-radius: 8px; font-size: .92em; }
+
+    footer { padding: 40px 0 60px; text-align: center; color: var(--dim); font-size: 15px; border-top: 1px solid var(--line); }
+    footer a { color: var(--muted); }
+    footer a:hover { color: var(--red-soft); }
+
+    @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } .ghost.l, .ghost.r { display: none; } .links a:not(.keep) { display: none; } }
+    @media (max-width: 620px) { .grid, .steps { grid-template-columns: 1fr; } .hero { padding: 40px 0 60px; } }
+    @media (prefers-reduced-motion: no-preference) {
+      .hero > * { animation: rise .8s cubic-bezier(.2, .8, .2, 1) both; }
+      .hero > *:nth-child(3) { animation-delay: .08s; } .hero > *:nth-child(4) { animation-delay: .16s; } .hero > *:nth-child(5) { animation-delay: .24s; } .hero > *:nth-child(6) { animation-delay: .32s; }
+      @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="#"><img src="logo.png" alt="">corsa-mess</a>
+      <div class="links">
+        <a href="#features">Возможности</a>
+        <a href="#start">Быстрый старт</a>
+        <a class="keep" href="https://github.com/kolyagames/corsa_mess">GitHub</a>
+      </div>
+    </nav>
+
+    <header class="hero">
+      <div class="ghost l"><i class="a"></i><i></i><i class="b"></i><i class="b"></i><i class="b"></i></div>
+      <div class="ghost r"></div>
+      <span class="badge"><img src="logo.png" alt="">corsa-mess</span>
+      <h1>Свой мессенджер.<br>Без серверов.</h1>
+      <p class="lead"><b>corsa-mess</b> — чат, голос и показ экрана напрямую между друзьями. Один запускает комнату, остальные заходят по коду.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/kolyagames/corsa_mess/releases/latest">Скачать для Windows</a>
+        <a class="btn ghost-btn" href="https://github.com/kolyagames/corsa_mess">Исходный код</a>
+      </div>
+      <div class="note">Открытый код · MIT · Windows 10 и 11</div>
+    </header>
+
+    <section id="features">
+      <h2>Всё, что нужно друзьям</h2>
+      <p class="sub">Привычный интерфейс, но данные остаются у вас.</p>
+      <div class="grid">
+        <div class="card"><div class="ic">💬</div><h3>Чат и категории</h3><p>Каналы по категориям, баннер комнаты, стикеры и свои эмодзи по ссылкам с экспортом в JSON.</p></div>
+        <div class="card"><div class="ic">🎙</div><h3>Голос и экран</h3><p>Стерео Opus до 510 кбит/с и показ экрана до 4K и 120 кадров в секунду.</p></div>
+        <div class="card"><div class="ic">🎨</div><h3>Профили</h3><p>Аватар, баннер, фон, свои рамки с поддержкой GIF, эффекты имени, теги и режим невидимки.</p></div>
+        <div class="card"><div class="ic">🧩</div><h3>Плагины и темы</h3><p>CSS-темы и плагины как в Vencord. В комплекте темы Midnight, Galaxy и Translucence.</p></div>
+        <div class="card"><div class="ic">🔒</div><h3>Защита</h3><p>Шифрование, закрепление сертификата, пароль сети, лимиты, бан и проверка плагинов.</p></div>
+        <div class="card"><div class="ic">🎮</div><h3>Кто во что играет</h3><p>Статус «играет в…» через Discord RPC и уведомления в стиле Steam.</p></div>
+      </div>
+    </section>
+
+    <section id="start">
+      <h2>Быстрый старт</h2>
+      <p class="sub">Установка не нужна: распаковали и запустили.</p>
+      <div class="steps">
+        <div class="card"><h3>Меня пригласили</h3>
+          <ol>
+            <li>Скачайте архив и запустите <code>corsa-mess.exe</code>.</li>
+            <li>Попросите у друга <b>код комнаты</b>, он выглядит как <code>abcdef-ghijk</code>.</li>
+            <li>Вставьте код на главной странице и нажмите <b>«Подключиться»</b>.</li>
+            <li>Если комната закрыта, введите пароль, который назвал друг.</li>
+          </ol></div>
+        <div class="card"><h3>Хочу свою комнату</h3>
+          <ol>
+            <li>В блоке <b>«Запустить свой сервер»</b> задайте название и пароль.</li>
+            <li>Нажмите <b>«Запустить сервер»</b> и отправьте друзьям код.</li>
+            <li>Для друзей из другой сети нажмите <b>«Открыть доступ из интернета»</b>.</li>
+            <li>Если роутер не поддерживает UPnP, используйте Radmin VPN, ZeroTier или Tailscale.</li>
+          </ol></div>
+      </div>
+      <p class="note" style="text-align:center">Windows может показать предупреждение SmartScreen: сборка не подписана. «Подробнее» → «Выполнить в любом случае».</p>
+    </section>
+
+    <footer>
+      corsa-mess · MIT · <a href="https://github.com/kolyagames/corsa_mess">исходный код на GitHub</a>
+    </footer>
+  </div>
+</body>
+</html>

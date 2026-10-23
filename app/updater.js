@@ -11,6 +11,23 @@ const { app, net } = require('electron');
 const REPO = 'kolyagames/corsa_mess';
 const ASSET = 'corsa-mess-win32-x64.zip';
 const DOWNLOAD_PREFIX = `https://github.com/${REPO}/releases/download/`;
+const VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
+
+// Адрес архива не принимается ни от кого: он собирается из проверенного номера версии.
+// Так в нём не может оказаться «..», чужого репозитория, порта или лишних символов.
+function assetUrl(version) {
+  if (!VERSION_RE.test(String(version))) return null;
+  return `${DOWNLOAD_PREFIX}v${version}/${ASSET}`;
+}
+
+// Страница релиза: только github.com этого репозитория, адрес разбирается и сверяется после нормализации.
+function releasePage(url) {
+  try {
+    const u = new URL(String(url));
+    if (u.protocol !== 'https:' || u.hostname !== 'github.com' || u.port || u.username || u.password) return null;
+    return u.pathname.startsWith(`/${REPO}/`) && !u.pathname.includes('..') ? u.href : null;
+  } catch (e) { return null; }
+}
 
 function cmpVer(a, b) {
   const pa = String(a).split('.').map((x) => parseInt(x, 10) || 0);
@@ -23,25 +40,28 @@ async function check() {
   const r = await net.fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'corsa-mess-updater' } });
   if (!r.ok) throw new Error(`GitHub не ответил (${r.status})`);
   const j = await r.json();
-  const version = String(j.tag_name || '').replace(/^v/, '');
+  const tag = String(j.tag_name || '').replace(/^v/, '');
+  const version = VERSION_RE.test(tag) ? tag : '';
   const asset = (j.assets || []).find((a) => a.name === ASSET);
-  const url = asset && String(asset.browser_download_url || '');
   const sha256 = ((/SHA-256[^0-9a-f]{0,40}([0-9a-f]{64})/i.exec(j.body || '') || [])[1] || '').toLowerCase() || null;
   return {
     current: app.getVersion(), version, newer: !!version && cmpVer(version, app.getVersion()) > 0,
-    url: url.startsWith(DOWNLOAD_PREFIX) ? url : null, size: asset ? asset.size : 0, sha256,
-    notes: String(j.body || '').slice(0, 4000), page: String(j.html_url || '').startsWith(`https://github.com/${REPO}/`) ? j.html_url : null,
+    url: asset ? assetUrl(version) : null, size: asset && Number.isFinite(asset.size) ? asset.size : 0, sha256,
+    notes: String(j.body || '').slice(0, 4000), page: releasePage(j.html_url),
     packaged: app.isPackaged,
   };
 }
 
 // Скачать архив во временную папку, считая SHA-256 на лету. onProgress(доля 0..1).
+// info — только результат check(), полученный главным процессом от GitHub; интерфейс подставить свои данные не может.
 async function download(info, onProgress) {
-  if (!info || !info.url || !info.url.startsWith(DOWNLOAD_PREFIX)) throw new Error('Неизвестный адрес архива');
+  if (!info || !info.newer) throw new Error('Новой версии нет');
+  const url = assetUrl(info.version);
+  if (!url) throw new Error('Неизвестный номер версии');
   if (!/^[0-9a-f]{64}$/.test(info.sha256 || '')) throw new Error('У релиза нет контрольной суммы, обновите вручную со страницы релиза');
   // Старые недоустановленные архивы больше не нужны.
   for (const f of fs.readdirSync(os.tmpdir())) if (/^corsa-mess-[\d.]+-\d+\.zip$/.test(f)) fs.rmSync(path.join(os.tmpdir(), f), { force: true });
-  const r = await net.fetch(info.url, { headers: { 'User-Agent': 'corsa-mess-updater' } });
+  const r = await net.fetch(url, { headers: { 'User-Agent': 'corsa-mess-updater' } });
   if (!r.ok || !r.body) throw new Error(`Архив не скачался (${r.status})`);
   const total = Number(r.headers.get('content-length')) || info.size || 0;
   const file = path.join(os.tmpdir(), `corsa-mess-${info.version}-${Date.now()}.zip`);
@@ -100,4 +120,4 @@ function install(zip, { dir = path.dirname(process.execPath), relaunch = process
   return script;
 }
 
-module.exports = { check, download, install, cmpVer, SCRIPT };
+module.exports = { check, download, install, cmpVer, assetUrl, releasePage, SCRIPT };

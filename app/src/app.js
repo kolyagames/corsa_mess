@@ -2474,7 +2474,7 @@
         go.disabled = true; bar.style.display = ''; status.textContent = 'Скачиваю…';
         const off = native.onUpdateProgress((p) => { bar.firstChild.style.width = Math.round(p * 100) + '%'; status.textContent = `Скачано ${Math.round(p * 100)}%`; });
         try {
-          await native.updateDownload(u);
+          await native.updateDownload();
           off();
           status.textContent = 'Скачано и проверено (контрольная сумма совпала). Приложение закроется, обновится и откроется само.';
           go.textContent = 'Перезапустить и обновить';

@@ -551,6 +551,23 @@ async function testFiles() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// Обновление: адрес архива собирается только из номера версии, страница релиза — только этого репозитория.
+function testUpdater() {
+  const up = require('../updater');
+  const good = 'https://github.com/kolyagames/corsa_mess/releases/download/v1.2.3/corsa-mess-win32-x64.zip';
+  assert.strictEqual(up.assetUrl('1.2.3'), good);
+  for (const bad of ['1.2', '1.2.3.4', '../../evil', '1.2.3/../../../evil/repo', '1.2.3\\x', '1.2.3?x=1', '', null, undefined, '1.2.3 ', '0x1.2.3', '1e3.0.0']) {
+    assert.strictEqual(up.assetUrl(bad), null, `версия ${JSON.stringify(bad)} должна отклоняться`);
+  }
+  assert.strictEqual(up.releasePage('https://github.com/kolyagames/corsa_mess/releases/tag/v1.2.3'), 'https://github.com/kolyagames/corsa_mess/releases/tag/v1.2.3');
+  for (const bad of [
+    'https://github.com/kolyagames/corsa_mess/../../evil/repo/releases', 'https://github.com/kolyagames/corsa_mess/%2e%2e/%2e%2e/evil',
+    'http://github.com/kolyagames/corsa_mess/', 'https://github.com.evil.com/kolyagames/corsa_mess/', 'https://github.com@evil.com/kolyagames/corsa_mess/',
+    'https://evil.com/github.com/kolyagames/corsa_mess/', 'https://github.com:8443/kolyagames/corsa_mess/', 'https://github.com/kolyagames/corsa_mess_fake/', 'file:///C:/x', 'javascript:alert(1)', '', null,
+  ]) assert.strictEqual(up.releasePage(bad), null, `страница ${JSON.stringify(bad)} должна отклоняться`);
+  assert.ok(up.cmpVer('0.10.0', '0.9.9') > 0 && up.cmpVer('0.5.0', '0.5.0') === 0 && up.cmpVer('0.4.9', '0.5.0') < 0);
+}
+
 // Поиск комнат в локальной сети: ответ приходит на запрос, сведения о комнате верные.
 async function testLan() {
   const lan = require('../server/lan');
@@ -575,5 +592,6 @@ async function testLan() {
   await testChat(); console.log('ok  каналы, ответы, правка, реакции, «печатает…», профиль');
   await testDmPins(); console.log('ok  личные сообщения и закрепы');
   await testFiles(); console.log('ok  файлы: ключ, тип по содержимому, Range, удаление');
+  testUpdater(); console.log('ok  обновление: адрес и версия проверяются строго');
   await testLan(); console.log('ok  поиск комнат в локальной сети');
 })().catch((e) => { console.error('ПРОВАЛ:', e); process.exit(1); });

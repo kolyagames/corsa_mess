@@ -60,6 +60,7 @@ let tray = null;
 let quitting = false;
 let trayHintShown = false;
 let updateFile = null; // скачанный и проверенный архив обновления
+let lastCheck = null; // ответ GitHub о последнем релизе (только главный процесс)
 const prefs = { closeToTray: true };
 let pins = {}; // закреплённые отпечатки серверов: адрес -> sha256
 
@@ -447,10 +448,16 @@ function setupIpc() {
     try { return v && safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(v, 'base64')) : ''; } catch (err) { return ''; }
   });
   // Обновления: проверить, скачать с проверкой суммы, установить и перезапустить.
-  ipcMain.handle('update:check', () => updater.check());
-  ipcMain.handle('update:download', async (e, info) => {
+  // Сведения об обновлении запоминает главный процесс. Скачивание берёт их отсюда, а не из интерфейса:
+  // плагин или любой код на странице не может подсунуть чужой архив или свою контрольную сумму.
+  ipcMain.handle('update:check', async () => {
+    lastCheck = await updater.check();
+    return lastCheck;
+  });
+  ipcMain.handle('update:download', async () => {
     updateFile = null;
-    updateFile = await updater.download(info, (p) => tellUi('update:progress', p));
+    if (!lastCheck) throw new Error('Сначала проверьте обновления');
+    updateFile = await updater.download(lastCheck, (p) => tellUi('update:progress', p));
     return true;
   });
   ipcMain.handle('update:install', () => {
@@ -460,7 +467,7 @@ function setupIpc() {
     setTimeout(() => app.quit(), 300);
     return true;
   });
-  ipcMain.handle('update:page', (e, url) => { if (/^https:\/\/github\.com\/kolyagames\/corsa_mess\//.test(String(url))) shell.openExternal(String(url)); return true; });
+  ipcMain.handle('update:page', (e, url) => { const page = updater.releasePage(url); if (page) shell.openExternal(page); return !!page; });
   // Файлы комнаты: интерфейс сообщает, к какой комнате он подключён, загрузка и сохранение идут отсюда.
   ipcMain.handle('room:bind', (e, b) => {
     const ok = b && /^([a-z0-9.-]{1,253}|\[[0-9a-f:]+\])$/i.test(String(b.host)) && Number.isInteger(b.port) && b.port > 0 && b.port < 65536 && /^[0-9a-f]{32}$/.test(String(b.token));

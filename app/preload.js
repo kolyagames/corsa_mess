@@ -33,7 +33,7 @@ contextBridge.exposeInMainWorld('corsaNative', {
   secretSet: (key, value) => ipcRenderer.invoke('secret:set', key, value),
   secretGet: (key) => ipcRenderer.invoke('secret:get', key),
   updateCheck: () => ipcRenderer.invoke('update:check'),
-  updateDownload: (info) => ipcRenderer.invoke('update:download', info),
+  updateDownload: () => ipcRenderer.invoke('update:download'),
   updateInstall: () => ipcRenderer.invoke('update:install'),
   openReleasePage: (url) => ipcRenderer.invoke('update:page', url),
   onUpdateProgress: (cb) => {

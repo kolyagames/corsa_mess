@@ -189,9 +189,18 @@
       this.onChange();
     }
 
+    // Серверы для соединения через NAT. В локальной сети (и в общих VPN вроде Radmin, ZeroTier, Hamachi) они не нужны и не используются:
+    // ваш адрес уходит стороннему STUN только когда комната находится в интернете и вы это не отключили.
     iceServers() {
-      const stun = (this.getSettings().stun || '').trim();
-      return stun ? [{ urls: stun }] : [];
+      const s = this.getSettings();
+      const out = [];
+      const valid = (u) => /^(stun|turn|turns):[A-Za-z0-9.\-:[\]]{1,200}(\?transport=(udp|tcp))?$/.test(u);
+      const own = (s.stun || '').trim();
+      if (own && valid(own)) out.push({ urls: own });
+      else if (s.internetVoice && !own && !C.isLocalHost(this.client.host)) out.push({ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] });
+      const turn = (s.turnUrl || '').trim();
+      if (turn && valid(turn) && !C.isLocalHost(this.client.host)) out.push({ urls: turn, username: String(s.turnUser || '').slice(0, 128), credential: String(s.turnPass || '').slice(0, 256) });
+      return out;
     }
 
     openPeer(sid, retries = 0) {

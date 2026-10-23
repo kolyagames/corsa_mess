@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('corsaNative', {
     ipcRenderer.on('update:progress', fn);
     return () => ipcRenderer.removeListener('update:progress', fn);
   },
+  fetchImage: (url) => ipcRenderer.invoke('media:fetch', url),
   roomBind: (b) => ipcRenderer.invoke('room:bind', b),
   uploadFile: (f) => ipcRenderer.invoke('room:upload', f),
   saveRoomFile: (f) => ipcRenderer.invoke('room:save', f),

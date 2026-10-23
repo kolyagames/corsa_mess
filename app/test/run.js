@@ -601,6 +601,45 @@ function testIcons() {
   for (const name of used) assert.ok(defs[name], `метка {{ic:${name}}} ведёт на несуществующую иконку`);
 }
 
+// Палитра: главные цвета, серые картинки без акцента, подгонка под светлую и тёмную тему, голос через интернет только вне локальной сети.
+function testPalette() {
+  const vm = require('vm');
+  const ctx = { window: {}, document: {} };
+  for (const f of ['lib.js', 'palette.js']) {
+    ctx.window.Corsa = ctx.window.Corsa;
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8'), ctx);
+  }
+  const C = ctx.window.Corsa;
+  const px = (rgbList) => { const d = new Uint8ClampedArray(rgbList.length * 4); rgbList.forEach(([r, g, b, a = 255], i) => d.set([r, g, b, a], i * 4)); return d; };
+  const fill = (n, c) => Array.from({ length: n }, () => c);
+  // Красный и фиолетовый (близкие тона): акцент красный (его больше), второй цвет фиолетовый.
+  let p = C.palette.fromPixels(px([...fill(600, [220, 30, 40]), ...fill(400, [140, 40, 220])]));
+  assert.strictEqual(p.gray, false);
+  assert.ok(p.accent[0] > 180 && p.accent[2] < 80, 'главный цвет красный');
+  assert.ok(p.accent2[2] > 150 && p.accent2[0] < 200, 'второй цвет фиолетовый');
+  assert.strictEqual(p.colors.length, 2);
+  // Красный и синий (далёкие тона): второй цвет не синий, а соседний тон красного, чтобы градиент не стал серым.
+  p = C.palette.fromPixels(px([...fill(600, [220, 30, 40]), ...fill(400, [30, 60, 220])]));
+  assert.ok(p.accent2[0] > 150, 'у далёких тонов второй цвет берётся рядом с главным');
+  assert.strictEqual(p.colors.length, 2, 'в палитре оба цвета остаются');
+  // Один цвет: второй берётся соседним тоном.
+  p = C.palette.fromPixels(px(fill(500, [40, 180, 60])));
+  assert.ok(p.accent && p.accent2 && p.accent2.join() !== p.accent.join(), 'у одноцветной картинки второй цвет — соседний тон');
+  // Серая, чёрно-белая и прозрачная картинки цвета не дают.
+  assert.strictEqual(C.palette.fromPixels(px([...fill(300, [120, 120, 125]), ...fill(300, [240, 240, 240])])).accent, null);
+  assert.strictEqual(C.palette.fromPixels(px(fill(100, [200, 30, 30, 0]))).accent, null, 'прозрачные пиксели не считаются');
+  // Чёрный фон не перебивает цветной предмет, хотя занимает больше места.
+  p = C.palette.fromPixels(px([...fill(800, [5, 5, 5]), ...fill(200, [250, 140, 20])]));
+  assert.ok(p.accent[0] > 200 && p.accent[1] > 100, 'чёрный фон не становится акцентом');
+  // Подгонка: в тёмном режиме светлее, в светлом темнее.
+  const dark = C.palette.rgbToHsl(C.palette.fit([90, 10, 10], 'dark'))[2];
+  const light = C.palette.rgbToHsl(C.palette.fit([250, 200, 200], 'light'))[2];
+  assert.ok(dark >= 0.5 && light <= 0.5, 'акцент читается на обоих режимах');
+  // Голос через интернет: локальные и VPN-адреса STUN не получают.
+  for (const h of ['192.168.1.5', '10.0.0.2', '172.20.1.1', '127.0.0.1', '25.1.2.3', '26.4.4.4', '100.64.0.9', 'localhost']) assert.strictEqual(C.isLocalHost(h), true, h);
+  for (const h of ['8.8.8.8', '203.0.113.5', 'bore.pub', '172.32.0.1', '100.63.0.1', '11.1.1.1']) assert.strictEqual(C.isLocalHost(h), false, h);
+}
+
 // Поиск комнат в локальной сети: ответ приходит на запрос, сведения о комнате верные.
 async function testLan() {
   const lan = require('../server/lan');
@@ -627,5 +666,6 @@ async function testLan() {
   await testFiles(); console.log('ok  файлы: ключ, тип по содержимому, Range, удаление');
   testUpdater(); console.log('ok  обновление: адрес и версия проверяются строго');
   testIcons(); console.log('ok  иконки: пути корректны, метки ведут на существующие иконки');
+  testPalette(); console.log('ok  палитра аватарки и признак локального адреса');
   await testLan(); console.log('ok  поиск комнат в локальной сети');
 })().catch((e) => { console.error('ПРОВАЛ:', e); process.exit(1); });

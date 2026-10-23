@@ -427,6 +427,41 @@ function setupIpc() {
   });
   ipcMain.handle('media:cmd', (e, cmd) => { if (media) media.command(String(cmd)); return true; });
   ipcMain.handle('migrate:scan', () => migrationScan());
+  // Картинка для подбора цветов: только с проверенных сайтов (и после переадресаций тоже), только картинки, не больше 6 МБ.
+  ipcMain.handle('media:fetch', async (e, url) => {
+    const safe = Allowlist.sanitizeImageUrl(url);
+    if (!safe) throw new Error('Этот сайт не в списке проверенных');
+    // Переадресации идём вручную, не больше трёх, и каждый новый адрес тоже должен быть из списка проверенных сайтов.
+    let current = safe;
+    let r = null;
+    for (let hop = 0; hop < 4; hop++) {
+      r = await net.fetch(current, { headers: { 'User-Agent': 'corsa-mess' }, redirect: 'manual' });
+      if (r.status >= 300 && r.status < 400) {
+        const next = Allowlist.sanitizeImageUrl(new URL(r.headers.get('location') || '', current).href);
+        if (!next) throw new Error('Переадресация на непроверенный сайт');
+        current = next;
+        r = null;
+        continue;
+      }
+      break;
+    }
+    if (!r) throw new Error('Слишком много переадресаций');
+    if (!r.ok || !r.body) throw new Error(`Картинка не загрузилась (${r.status})`);
+    const type = String(r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!/^image\/(png|jpe?g|gif|webp)$/.test(type)) throw new Error('Не картинка');
+    const limit = 6 * 1024 * 1024;
+    const chunks = [];
+    let size = 0;
+    const reader = r.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > limit) { reader.cancel().catch(() => {}); throw new Error('Картинка больше 6 МБ'); }
+      chunks.push(Buffer.from(value));
+    }
+    return { type, data: new Uint8Array(Buffer.concat(chunks)) };
+  });
   // Фон и автозапуск. Автозапуск с Windows доступен только в собранной версии.
   ipcMain.handle('app:prefs', (e, p) => {
     if (p && typeof p.closeToTray === 'boolean') prefs.closeToTray = p.closeToTray;

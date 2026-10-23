@@ -17,6 +17,9 @@
     appBg: '', appBgDim: 55, appBgBlur: 0, showMembers: true, clock24: true, quickCss: '', groupMessages: true, gifHover: false,
     // Сеть
     lanVisible: true, lanScan: true, autoReconnect: true, lanBoost: true, lanScreenMbps: 40, autoIdle: true,
+    internetVoice: true, turnUrl: '', turnUser: '', turnPass: '',
+    // Цвета из аватарки
+    autoColor: true, autoGradient: true, autoColorOthers: true,
   };
   // Дизайны: свои названия и цвета, без чужих логотипов и фирменных шрифтов.
   const DESIGNS = [
@@ -726,7 +729,7 @@
     modal, avatarEl, nameEl, copy, contextMenu, fmtTime, activityLine,
     media: C.media,
     notify: (user, line, sub) => showPresenceNote(user, 'custom', line, sub),
-    setAccentOverride: (hex) => { S.accentOverride = HEX.test(hex || '') ? hex : null; C.applyAccent(S.accentOverride || S.settings.accent); },
+    setAccentOverride: (hex) => { S.accentOverride = HEX.test(hex || '') ? hex : null; applyAccentColors(); },
     setActivityOverride: (a) => { S.activityOverride = a || null; updateActivity(); },
     setMusic: (a) => { S.music = a || null; updateActivity(); },
     getActivity: () => S.activity,
@@ -1797,6 +1800,17 @@
     const wrap = h('div', { class: 'profile-card-bg cs-' + (u.cardStyle || 'default'), style: bgStyle(u.bg) }, bg, body, fx, cardFrame);
     if (pc) wrap.style.setProperty('--pc', pc);
     if (pc && pc2) wrap.style.setProperty('--pc2', pc2);
+    // Нет ни своего цвета, ни баннера: карточка красится в цвета аватарки (градиент из двух главных цветов).
+    if (!pc && !banner && u.avatar && S.settings.autoColorOthers) {
+      C.palette.fromUrl(u.avatar).then((p) => {
+        if (!p || p.gray || !p.accent) return;
+        const c1 = C.palette.toHex(C.palette.fit(p.accent, 'dark'));
+        const c2 = C.palette.toHex(C.palette.fit(p.accent2, 'dark'));
+        bg.style.background = `linear-gradient(135deg, ${c1}, ${c2})`;
+        wrap.style.setProperty('--pc', c1);
+        wrap.style.setProperty('--pc2', c2);
+      });
+    }
     if (fx) {
       // Эффект запускается, когда карточка появилась на странице, и сам останавливается, когда её убрали.
       requestAnimationFrame(() => {
@@ -1954,6 +1968,7 @@
       };
       saveProfile();
       S.profileDraft = null;
+      refreshPalette();
       if (S.conn) S.conn.send({ t: 'profile', ...profileFields(S.profile) });
       renderAll();
       C.toast('Профиль сохранён');
@@ -2115,6 +2130,44 @@
       switchRow('Передавать звук экрана', S.settings.screenAudio, (v) => { S.settings.screenAudio = v; saveSettings(); }, 'Работает на Windows: звук системы целиком.'));
   }
 
+  // ---------- Цвета из аватарки ----------
+  // Акцент выбирается так: цвет трека («Цвет под музыку») важнее всего, затем цвет из своей аватарки, затем выбранный вручную.
+  // Второй цвет аватарки идёт в градиенты (кнопки, фон, рамки, баннеры); без него градиенты строятся из оттенков акцента.
+  function applyAccentColors(mode) {
+    const s = S.settings;
+    const m = mode || document.body.dataset.mode || 'dark';
+    const p = S.palette;
+    if (S.accentOverride) { C.applyAccent(S.accentOverride, null); return; }
+    if (s.autoColor && p && !p.gray && p.accent) {
+      const a = C.palette.fit(p.accent, m);
+      const b = s.autoGradient && p.accent2 ? C.palette.fit(p.accent2, m) : null;
+      C.applyAccent(C.palette.toHex(a), b ? C.palette.toHex(b) : null, b ? C.palette.toHex(C.palette.deep(p.accent2, m)) : null);
+      return;
+    }
+    C.applyAccent(s.accent, null);
+  }
+
+  // Считает палитру своей аватарки. Последний результат запоминается: при запуске цвета появляются сразу, без вспышки.
+  async function refreshPalette() {
+    const url = C.safeUrl(S.profile.avatar);
+    if (!S.settings.autoColor || !url) { S.palette = null; applyAccentColors(); renderPaletteSwatches(); return; }
+    const cached = store.get('palette', null);
+    if (cached && cached.url === url && !S.palette) { S.palette = cached.p; applyAccentColors(); }
+    const p = await C.palette.fromUrl(url);
+    if (C.safeUrl(S.profile.avatar) !== url) return; // аватарку успели сменить
+    S.palette = p;
+    if (p) store.set('palette', { url, p }); else store.set('palette', null);
+    applyAccentColors();
+    renderPaletteSwatches();
+  }
+
+  function renderPaletteSwatches() {
+    const box = document.getElementById('palette-swatches');
+    if (!box) return;
+    const p = S.palette;
+    box.replaceChildren(...(p && p.colors.length ? p.colors.map((c) => h('span', { class: 'pal-swatch', title: C.palette.toHex(c.rgb), style: { background: C.palette.toHex(c.rgb) } })) : [h('span', { class: 'hint' }, S.profile.avatar ? 'Из этой аватарки цвет подобрать не вышло (она серая или не загрузилась)' : 'Сначала задайте аватарку в профиле')]));
+  }
+
   // ---------- Внешний вид ----------
   function applyLook() {
     const s = S.settings;
@@ -2146,7 +2199,7 @@
     let qc = document.getElementById('quick-css');
     if (!qc) { qc = h('style', { id: 'quick-css' }); document.head.append(qc); }
     qc.textContent = s.quickCss || '';
-    C.applyAccent(S.accentOverride || s.accent);
+    applyAccentColors(mode);
     // Кнопки окна (свернуть, закрыть) красятся под тему.
     requestAnimationFrame(() => {
       const tb = document.getElementById('titlebar');
@@ -2168,6 +2221,7 @@
 
   function sectionLook(redraw) {
     const s = S.settings;
+    requestAnimationFrame(() => renderPaletteSwatches());
     const set = (k, v, re) => { s[k] = v; saveSettings(); applyLook(); if (re) redraw(); };
     const color = h('input', { type: 'color', value: s.accent });
     color.addEventListener('input', () => { s.accent = color.value; saveSettings(); applyLook(); });
@@ -2187,6 +2241,11 @@
       h('label', { class: 'lbl' }, 'Цвет акцента'),
       h('div', { class: 'row wrap' }, color, ...ACCENTS.map((c) => h('button', { class: 'swatch' + (c === s.accent ? ' on' : ''), style: { background: c }, title: c,
         onclick: () => { s.accent = c; saveSettings(); applyLook(); redraw(); } }))),
+      h('label', { class: 'lbl' }, 'Цвета из аватарки'),
+      switchRow('Подбирать цвет интерфейса по моей аватарке', s.autoColor, (v) => { s.autoColor = v; saveSettings(); refreshPalette(); redraw(); }, s.autoColor ? 'Сейчас акцент берётся из аватарки, цвет выше действует, когда это выключено или аватарки нет.' : 'Акцент берётся из цвета выше.'),
+      switchRow('Градиенты из двух цветов аватарки', s.autoGradient, (v) => { s.autoGradient = v; saveSettings(); applyLook(); }, 'Второй цвет аватарки идёт в кнопки, фон, рамки и баннеры. Выключено — градиенты из оттенков одного цвета.'),
+      switchRow('Красить карточки профилей по их аватаркам', s.autoColorOthers, (v) => { s.autoColorOthers = v; saveSettings(); }, 'Если у человека нет своего цвета и баннера, его карточка красится в цвета его аватарки. Свои цвета и баннер всегда важнее.'),
+      h('div', { class: 'row', style: { marginTop: '6px' } }, h('div', { id: 'palette-swatches', class: 'pal-row' }), h('button', { class: 'btn', onclick: () => { S.palette = null; refreshPalette(); } }, 'Пересчитать')),
       h('div', { class: 'row wrap' },
         h('div', { class: 'grow' }, field('Шрифт', select([['design', 'Как в дизайне'], ['system', 'Системный'], ['inter', 'Inter'], ['roboto', 'Roboto Flex'], ['serif', 'Source Serif'], ['mono', 'Моноширинный']], s.font, (v) => set('font', v)))),
         h('div', { class: 'grow' }, range('Размер текста', 11, 20, 1, s.fontSize, (v) => v + ' px', (v) => set('fontSize', v)))),
@@ -2432,7 +2491,21 @@
       switchRow('«Не на месте» через 10 минут без действий', s.autoIdle, (v) => { s.autoIdle = v; saveSettings(); }),
       h('label', { class: 'lbl' }, 'Сети этого компьютера'), ips,
       h('label', { class: 'lbl' }, 'Интернет'),
-      field('STUN-сервер для голоса через интернет', stun, 'Пусто — голос работает в локальной сети и по общим сетям (VPN). Адрес STUN помогает соединиться через роутеры, но этот сервис увидит ваш IP.'));
+      switchRow('Голос через интернет (STUN)', s.internetVoice, (v) => { s.internetVoice = v; saveSettings(); },
+        'Если комната не в локальной сети, голос соединяется напрямую через роутеры с помощью публичных STUN-серверов Google и Cloudflare: они видят ваш IP, звук через них не идёт. В локальной сети и в общих VPN (Radmin, ZeroTier, Hamachi) STUN не используется. Не всегда выходит: если у обоих провайдер выдаёт общий адрес (CGNAT), нужен TURN или общая сеть.'),
+      field('Свой STUN-сервер (необязательно)', stun, 'Например stun:stun.example.com:3478. Если задан, вместо серверов выше используется он.'),
+      h('label', { class: 'lbl' }, 'TURN: запасной путь для голоса'),
+      h('div', { class: 'hint' }, 'TURN пропускает звук через сервер, когда напрямую не выходит. Нужен свой сервер (например, coturn на недорогом VPS): общего бесплатного у приложения нет. Звук остаётся зашифрованным.'),
+      h('div', { class: 'row wrap' },
+        h('div', { class: 'grow' }, field('Адрес', turnField('turnUrl', 'turn:turn.example.com:3478'))),
+        h('div', { class: 'grow' }, field('Логин', turnField('turnUser', ''))),
+        h('div', { class: 'grow' }, field('Пароль', turnField('turnPass', '', true)))));
+  }
+
+  function turnField(key, placeholder, secret) {
+    const i = h('input', { class: 'input', value: S.settings[key] || '', placeholder, maxLength: 200, type: secret ? 'password' : 'text', autocomplete: 'off' });
+    i.addEventListener('change', () => { S.settings[key] = i.value.trim(); saveSettings(); });
+    return i;
   }
 
   function sectionStartup(redraw) {
@@ -2714,6 +2787,7 @@
     S.detected = await native.presenceNow();
     updateActivity();
     startIdleWatch();
+    refreshPalette();
     // Клик по уведомлению Windows открывает канал или беседу.
     native.onNotifyClick((tag) => {
       if (!S.conn) return;

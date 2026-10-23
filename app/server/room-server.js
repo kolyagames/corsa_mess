@@ -7,6 +7,7 @@ const { WebSocketServer } = require('ws');
 const { sanitizeImageUrl } = require('../shared/allowlist');
 const { createFileStore, serveFile } = require('./files');
 
+const BRIDGE_IP = 'bridge'; // общий «адрес» всех, кто зашёл через интернет-мост
 const UPLOAD_WINDOW_MS = 10 * 60 * 1000;
 const UPLOAD_PER_WINDOW = 150 * 1024 * 1024; // не больше 150 МБ за 10 минут от одного участника
 
@@ -110,6 +111,8 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
   const fails = new Map(); // ip -> { n, until }
   const perIp = new Map(); // ip -> число соединений
   let httpServer = null;
+  let bridgeServer = null;
+  let bridgeWss = null;
   let heartbeat = null;
   // Права владельца только у владельца, который подключён с этого же компьютера (адрес 127.0.0.1 или ::1).
   const isOwner = (m) => !!ownerUid && m.uid === ownerUid && /^(127\.|::1$)/.test(m.ws.ip || '');
@@ -391,7 +394,8 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         const target = members.get(msg.sid);
         if (!target || target === m) return;
         // Адрес блокируется, кроме локального: иначе владелец мог бы запереть сам себя.
-        if (msg.ban) { banned.uids.add(target.uid); if (!/^(127\.|::1$)/.test(target.ws.ip)) banned.ips.add(target.ws.ip); }
+        // Адрес блокируется, кроме локального и мостового: через мост адрес общий, и блокировка ударила бы по всем.
+        if (msg.ban) { banned.uids.add(target.uid); if (!/^(127\.|::1$)/.test(target.ws.ip) && target.ws.ip !== BRIDGE_IP) banned.ips.add(target.ws.ip); }
         send(target.ws, { t: 'error', code: msg.ban ? 'banned' : 'kicked', text: msg.ban ? 'Вас заблокировали в этой комнате' : 'Вас исключили из комнаты' });
         target.ws.close(1008);
         break;
@@ -585,13 +589,15 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
     const f = fails.get(ip);
     if (banned.ips.has(ip)) return 'Вас заблокировали в этой комнате';
     if (f && f.until > Date.now()) return 'Слишком много неудачных попыток. Подождите минуту';
-    if ((perIp.get(ip) || 0) >= L.perIp) return 'Слишком много соединений с вашего адреса';
+    // Через мост настоящих адресов не видно, поэтому у всех мостовых соединений один общий «адрес» и лимит побольше.
+    if ((perIp.get(ip) || 0) >= (ip === BRIDGE_IP ? L.perIp * 5 : L.perIp)) return 'Слишком много соединений с вашего адреса';
     if (members.size >= L.maxMembers) return 'Комната заполнена';
     return null;
   }
 
-  function onConnection(ws, req) {
-    const ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  // bridged: соединение пришло через интернет-мост (relay), настоящий адрес собеседника неизвестен.
+  function onConnection(ws, req, bridged = false) {
+    const ip = bridged ? BRIDGE_IP : (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
     const refuse = admit(ws, ip);
     ws.on('error', () => {});
     if (refuse) { send(ws, { t: 'error', code: 'refused', text: refuse }); ws.close(1008); return; }
@@ -638,10 +644,15 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       httpServer.once('error', reject);
       httpServer.listen(port, '0.0.0.0', () => { httpServer.removeListener('error', reject); resolve(httpServer.address().port); });
       wss = new WebSocketServer({ server: httpServer, ...opts });
-      wss.on('connection', onConnection);
+      wss.on('connection', (ws, req) => onConnection(ws, req, false));
+      // Второй вход для интернет-моста: порт не слушает, соединения от relay подаются в него вручную (adoptBridged).
+      bridgeServer = tls ? https.createServer({ key: tls.key, cert: tls.cert, minVersion: 'TLSv1.2' }) : http.createServer();
+      bridgeServer.on('request', handleHttp);
+      bridgeWss = new WebSocketServer({ server: bridgeServer, ...opts });
+      bridgeWss.on('connection', (ws, req) => onConnection(ws, req, true));
       // Живость соединений: молчащих (оборванная сеть) отключаем.
       heartbeat = setInterval(() => {
-        for (const ws of wss.clients) {
+        for (const ws of [...wss.clients, ...bridgeWss.clients]) {
           if (ws.alive === false) { ws.terminate(); continue; }
           ws.alive = false;
           try { ws.ping(); } catch (e) { /* ignore */ }
@@ -657,17 +668,27 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       if (historyFile) { try { fs.writeFileSync(historyFile, snapshot()); } catch (e) { /* ignore */ } }
       if (store) store.flush();
       clearInterval(heartbeat);
-      for (const ws of wss ? wss.clients : []) ws.terminate();
+      for (const ws of [...(wss ? wss.clients : []), ...(bridgeWss ? bridgeWss.clients : [])]) ws.terminate();
+      if (bridgeServer) { try { bridgeServer.closeAllConnections(); } catch (e) { /* ignore */ } try { bridgeServer.close(() => {}); } catch (e) { /* не слушал */ } }
+      if (bridgeWss) { try { bridgeWss.close(); } catch (e) { /* ignore */ } }
       const done = () => resolve();
       if (!wss) { resolve(); return; }
       wss.close(() => { if (httpServer) { httpServer.closeAllConnections && httpServer.closeAllConnections(); httpServer.close(done); } else done(); });
     });
   }
 
+  // Принять соединение, пришедшее через мост: сырой сокет отдаётся серверу, дальше идут TLS, WebSocket и пароль как обычно.
+  function adoptBridged(socket) {
+    if (!bridgeServer) { socket.destroy(); return false; }
+    socket.on('error', () => {});
+    bridgeServer.emit('connection', socket);
+    return true;
+  }
+
   // Краткие сведения для поиска комнат в локальной сети.
   const info = () => ({ name: room.name, locked: !!passKey, members: [...members.values()].filter((x) => x.status !== 'invisible').length, max: L.maxMembers });
 
-  return { start, stop, info, memberCount: () => members.size };
+  return { start, stop, info, adoptBridged, memberCount: () => members.size };
 }
 
 module.exports = { createRoomServer };

@@ -51,6 +51,16 @@
     },
   };
 
+  // Адрес в локальной сети: частные диапазоны, loopback, link-local, общие VPN-сети (Hamachi 25.x, Radmin 26.x, CGNAT 100.64/10, Tailscale).
+  C.isLocalHost = (host) => {
+    const h = String(host || '').toLowerCase();
+    if (h === 'localhost' || /^\[?(::1|fe80:|f[cd][0-9a-f]{2}:)/.test(h)) return true;
+    const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h);
+    if (!m) return false;
+    const a = Number(m[1]); const b = Number(m[2]);
+    return a === 10 || a === 127 || a === 25 || a === 26 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+  };
+
   C.uuid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
   C.safeUrl = (u) => (u ? window.CorsaAllowlist.sanitizeImageUrl(u) : null);
 
@@ -120,9 +130,15 @@
   function mix(rgb, to, t) { return rgb.map((c, i) => Math.round(c + (to[i] - c) * t)); }
   const css = (rgb) => `rgb(${rgb.join(',')})`;
 
-  C.applyAccent = function applyAccent(hex) {
+  // hex2 — второй цвет для градиентов (из аватарки). Без него градиенты идут в обычные оттенки акцента.
+  C.applyAccent = function applyAccent(hex, hex2, hexEnd) {
     const rgb = hexToRgb(hex) || [255, 42, 68];
+    const rgb2 = hexToRgb(hex2);
     const root = document.documentElement.style;
+    root.setProperty('--accent2', rgb2 ? css(rgb2) : css(mix(rgb, [255, 255, 255], 0.3)));
+    root.setProperty('--accent2-rgb', (rgb2 || mix(rgb, [255, 255, 255], 0.3)).join(','));
+    const rgbEnd = hexToRgb(hexEnd);
+    root.setProperty('--grad-end', rgbEnd ? css(rgbEnd) : rgb2 ? css(mix(rgb2, [0, 0, 0], 0.35)) : css(mix(rgb, [0, 0, 0], 0.45)));
     root.setProperty('--accent-rgb', rgb.join(','));
     root.setProperty('--accent', css(rgb));
     root.setProperty('--accent-hi', css(mix(rgb, [255, 255, 255], 0.3)));

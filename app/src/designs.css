@@ -145,14 +145,14 @@ body[data-design="glass"] {
   --font: 'Inter', 'Segoe UI Variable Text', 'Segoe UI', sans-serif; --font-head: 'Inter', 'Segoe UI Variable Display', sans-serif;
   --round: 1.25; --blur: blur(28px) saturate(1.7);
   --body-bg: radial-gradient(1200px 800px at 15% 0%, color-mix(in srgb, var(--accent) 45%, #1a1030), transparent 60%),
-    radial-gradient(900px 700px at 100% 100%, #0b3b5c, transparent 60%), linear-gradient(160deg, #191626, #0b0d14);
+    radial-gradient(900px 700px at 100% 100%, color-mix(in srgb, var(--accent2) 38%, #0b1b2c), transparent 60%), linear-gradient(160deg, #191626, #0b0d14);
 }
 body[data-design="glass"][data-mode="light"] {
   --bg-0: rgba(246, 246, 250, .66); --bg-2: rgba(255, 255, 255, .7); --panel: rgba(255, 255, 255, .55); --panel-hi: rgba(255, 255, 255, .85);
   --line: rgba(0, 0, 0, .08); --text: #1c1c1e; --muted: rgba(60, 60, 67, .62); --glow-soft: rgba(0, 0, 0, .07);
   --accent-dim: color-mix(in srgb, var(--accent) 16%, rgba(255, 255, 255, .6));
   --body-bg: radial-gradient(1100px 800px at 10% 0%, color-mix(in srgb, var(--accent) 30%, #fde7f0), transparent 60%),
-    radial-gradient(900px 700px at 100% 100%, #cfe6ff, transparent 60%), linear-gradient(160deg, #f6f2ff, #eef4fb);
+    radial-gradient(900px 700px at 100% 100%, color-mix(in srgb, var(--accent2) 28%, #eef4fb), transparent 60%), linear-gradient(160deg, #f6f2ff, #eef4fb);
 }
 body[data-design="glass"]::after { display: none; }
 body[data-design="glass"] .rail, body[data-design="glass"] .side, body[data-design="glass"] .right, body[data-design="glass"] #titlebar,

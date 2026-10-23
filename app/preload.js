@@ -41,6 +41,15 @@ contextBridge.exposeInMainWorld('corsaNative', {
     ipcRenderer.on('update:progress', fn);
     return () => ipcRenderer.removeListener('update:progress', fn);
   },
+  bridgeOpen: (opts) => ipcRenderer.invoke('bridge:open', opts),
+  bridgeClose: () => ipcRenderer.invoke('bridge:close'),
+  bridgeInfo: () => ipcRenderer.invoke('bridge:info'),
+  onBridge: (cb) => {
+    const fn = (e, s) => cb(s);
+    ipcRenderer.on('bridge:state', fn);
+    return () => ipcRenderer.removeListener('bridge:state', fn);
+  },
+  tlsTarget: (host, port) => ipcRenderer.invoke('tls:target', host, port),
   fetchImage: (url) => ipcRenderer.invoke('media:fetch', url),
   roomBind: (b) => ipcRenderer.invoke('room:bind', b),
   uploadFile: (f) => ipcRenderer.invoke('room:upload', f),

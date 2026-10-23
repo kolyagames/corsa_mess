@@ -17,7 +17,7 @@
     appBg: '', appBgDim: 55, appBgBlur: 0, showMembers: true, clock24: true, quickCss: '', groupMessages: true, gifHover: false,
     // Сеть
     lanVisible: true, lanScan: true, autoReconnect: true, lanBoost: true, lanScreenMbps: 40, autoIdle: true,
-    internetVoice: true, turnUrl: '', turnUser: '', turnPass: '',
+    internetVoice: true, turnUrl: '', turnUser: '', turnPass: '', bridgeRelay: 'bore.pub',
     // Цвета из аватарки
     autoColor: true, autoGradient: true, autoColorOthers: true,
   };
@@ -1040,6 +1040,8 @@
         h('label', { class: 'lbl' }, 'Отпечаток сервера'),
         h('div', { class: 'hint', style: { wordBreak: 'break-all', userSelect: 'all' } }, hs.fingerprint),
         h('div', { class: 'hint' }, 'Друзья запоминают его при первом входе. Если потом он изменится, приложение предупредит о возможной подмене.'),
+        h('label', { class: 'lbl' }, 'Интернет-мост (без роутера и VPN)'),
+        bridgeBlock(hs),
         h('label', { class: 'lbl' }, 'Для друзей через интернет'),
         net ? h('div', null,
           net.cgnat ? h('div', { class: 'hint bad' }, `Внешний адрес роутера ${net.externalIp} — общий адрес провайдера (CGNAT), напрямую до вас не достучаться. Используйте общую сеть вроде Radmin VPN, ZeroTier или Tailscale.`)
@@ -1073,6 +1075,29 @@
         hostCard, lanCard)));
     clearInterval(lanTimer);
     if (S.settings.lanScan) { scanLan(); lanTimer = setInterval(() => { if (S.view.type === 'home' && document.getElementById('lan-list')) scanLan(); else clearInterval(lanTimer); }, 4000); }
+  }
+
+  // Интернет-мост: комната открывается через публичный relay (по умолчанию bore.pub). Друзьям — код вида bore.pub:12345.
+  function bridgeBlock(hs) {
+    const br = hs.bridge;
+    const relay = S.settings.bridgeRelay || 'bore.pub';
+    const out = h('div', { class: 'hint' });
+    if (!br) {
+      const go = h('button', { class: 'btn primary', onclick: async () => {
+        go.disabled = true; out.className = 'hint'; out.textContent = `Подключаюсь к ${relay}…`;
+        try { hs.bridge = await native.bridgeOpen({ relay }); renderMain(); } catch (e) { out.className = 'hint bad'; out.textContent = cleanErr(e); go.disabled = false; }
+      } }, 'Открыть через мост');
+      return h('div', null,
+        h('div', { class: 'hint' }, `Комната станет доступна друзьям из любой сети через общий публичный relay ${relay}: роутер, UPnP и VPN не нужны. Друзья вводят код вида ${relay}:12345. Шифрование и пароль остаются сквозными, relay не может прочитать переписку и голос, но видит адреса подключающихся и знает, что кто-то зашёл. Если relay недоступен, мост не работает. Нужен пароль сети. Закроется при остановке сервера.`),
+        go, out);
+    }
+    const live = br.state !== 'reconnecting';
+    return h('div', null,
+      h('div', { class: 'hint' }, live ? `Мост открыт через ${br.relay}. Код для друзей из любой сети:` : `Связь с ${br.relay} пропала, переподключаюсь… Код остаётся прежним.`),
+      h('div', { class: 'code-box' }, br.code),
+      h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => copy(br.code) }, 'Скопировать'),
+        h('button', { class: 'btn danger', onclick: async () => { await native.bridgeClose(); delete hs.bridge; renderMain(); } }, 'Закрыть мост')),
+      h('div', { class: 'hint' }, 'Первый вход друга: приложение запомнит отпечаток комнаты. Сверьте его с отпечатком выше другим способом, если хотите быть уверены, что relay ничего не подменил.'));
   }
 
   // Запуск своей комнаты. Название и порт запоминаются для автозапуска, пароль — только если автозапуск включён
@@ -2491,6 +2516,7 @@
       switchRow('«Не на месте» через 10 минут без действий', s.autoIdle, (v) => { s.autoIdle = v; saveSettings(); }),
       h('label', { class: 'lbl' }, 'Сети этого компьютера'), ips,
       h('label', { class: 'lbl' }, 'Интернет'),
+      field('Relay для интернет-моста', relayField(), 'По умолчанию bore.pub (общий публичный сервер с открытым исходным кодом bore). Можно указать свой bore-сервер без секрета: он должен принимать подключения на порту 7835.'),
       switchRow('Голос через интернет (STUN)', s.internetVoice, (v) => { s.internetVoice = v; saveSettings(); },
         'Если комната не в локальной сети, голос соединяется напрямую через роутеры с помощью публичных STUN-серверов Google и Cloudflare: они видят ваш IP, звук через них не идёт. В локальной сети и в общих VPN (Radmin, ZeroTier, Hamachi) STUN не используется. Не всегда выходит: если у обоих провайдер выдаёт общий адрес (CGNAT), нужен TURN или общая сеть.'),
       field('Свой STUN-сервер (необязательно)', stun, 'Например stun:stun.example.com:3478. Если задан, вместо серверов выше используется он.'),
@@ -2500,6 +2526,16 @@
         h('div', { class: 'grow' }, field('Адрес', turnField('turnUrl', 'turn:turn.example.com:3478'))),
         h('div', { class: 'grow' }, field('Логин', turnField('turnUser', ''))),
         h('div', { class: 'grow' }, field('Пароль', turnField('turnPass', '', true)))));
+  }
+
+  function relayField() {
+    const i = h('input', { class: 'input', value: S.settings.bridgeRelay || 'bore.pub', placeholder: 'bore.pub', maxLength: 253 });
+    i.addEventListener('change', () => {
+      const v = i.value.trim().toLowerCase() || 'bore.pub';
+      if (!/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/.test(v)) { C.toast('Некорректный адрес relay'); i.value = S.settings.bridgeRelay; return; }
+      S.settings.bridgeRelay = v; saveSettings();
+    });
+    return i;
   }
 
   function turnField(key, placeholder, secret) {
@@ -2795,6 +2831,12 @@
       else if (tag.startsWith('dm:')) openDm(tag.slice(3));
     });
     native.onHotkey(onHotkey);
+    // Состояние моста (открыт, переподключается, закрыт) приходит из главного процесса.
+    native.onBridge((st) => {
+      if (!S.hosting) return;
+      if (st.state === 'closed') { delete S.hosting.bridge; } else if (S.hosting.bridge) { S.hosting.bridge = { ...S.hosting.bridge, ...st }; }
+      if (S.view.type === 'home') renderMain();
+    });
     applyGlobalHotkeys();
     window.addEventListener('focus', () => native.attention(false).catch(() => {}));
     document.addEventListener('keydown', (e) => {

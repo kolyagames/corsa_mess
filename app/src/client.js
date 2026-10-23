@@ -44,7 +44,9 @@
     on(type, fn) { (this.handlers[type] = this.handlers[type] || []).push(fn); return this; }
     emit(type, ...args) { for (const fn of this.handlers[type] || []) fn(...args); }
 
-    connect() {
+    async connect() {
+      // Главному процессу нужен порт: сертификат закрепляется по хост:порт (через общий relay на одном адресе много комнат).
+      try { await window.corsaNative.tlsTarget(this.host, this.port); } catch (e) { /* без порта закрепление идёт по хосту */ }
       return new Promise((resolve, reject) => {
         let settled = false;
         let ws;

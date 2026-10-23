@@ -601,6 +601,105 @@ function testIcons() {
   for (const name of used) assert.ok(defs[name], `метка {{ic:${name}}} ведёт на несуществующую иконку`);
 }
 
+// Интернет-мост: макет relay (протокол bore) и настоящий сервер комнаты с TLS и паролем. Друг заходит через порт relay,
+// комната принимает его через мост, пароль и шифрование работают как обычно, общий лимит не даёт одному заполнить комнату.
+async function testBridge() {
+  const net = require('net');
+  const { openTunnel, readFrames } = require('../server/tunnel');
+  // Макет relay: управляющий порт и порт для «друзей» (по одному на туннель).
+  const waiting = new Map(); // uuid -> сокет друга
+  let remote = null;
+  let control = null;
+  let helloAsked = null;
+  // Читаем сырыми байтами: после {"Accept"} по тому же сокету идёт бинарный TLS, его нельзя декодировать как текст.
+  const relay = net.createServer((sock) => {
+    sock.on('error', () => {});
+    let buf = Buffer.alloc(0);
+    const onData = (chunk) => {
+      buf = Buffer.concat([buf, chunk]);
+      const end = buf.indexOf(0);
+      if (end < 0) return;
+      const msg = JSON.parse(buf.subarray(0, end).toString());
+      const rest = buf.subarray(end + 1);
+      sock.removeListener('data', onData);
+      if (msg && Object.prototype.hasOwnProperty.call(msg, 'Hello')) {
+        helloAsked = msg.Hello;
+        control = sock;
+        remote = net.createServer((friend) => {
+          friend.on('error', () => {});
+          const id = crypto.randomUUID();
+          waiting.set(id, friend);
+          sock.write(JSON.stringify({ Connection: id }) + '\0');
+        });
+        // Как настоящий relay: просили конкретный порт — даём его, если свободен.
+        remote.listen(msg.Hello || 0, '127.0.0.1', () => sock.write(JSON.stringify({ Hello: remote.address().port }) + '\0'));
+        const beat = setInterval(() => { if (!sock.destroyed) sock.write('"Heartbeat"\0'); }, 200);
+        sock.on('close', () => { clearInterval(beat); remote.close(); });
+      } else if (msg && msg.Accept) {
+        const friend = waiting.get(msg.Accept);
+        waiting.delete(msg.Accept);
+        if (!friend) { sock.destroy(); return; }
+        if (rest.length) friend.write(rest);
+        sock.pipe(friend); friend.pipe(sock);
+        friend.on('close', () => sock.destroy()); sock.on('close', () => friend.destroy());
+      }
+    };
+    sock.on('data', onData);
+  });
+  await new Promise((r) => relay.listen(0, '127.0.0.1', r));
+  const controlPort = relay.address().port;
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'corsa-bridge-'));
+  const cert = await ensureCert(dir);
+  const srv = createRoomServer({ name: 'мост', port: 0, password: 'секрет', tls: { key: cert.key, cert: cert.cert }, limits: { maxFails: 3, lockMs: 400 } });
+  const localPort = await srv.start();
+  const states = [];
+  const tunnel = await openTunnel({ relay: '127.0.0.1', controlPort, adopt: (s) => srv.adoptBridged(s), onState: (s) => states.push(s) });
+  assert.ok(tunnel.port > 0 && helloAsked === 0, 'туннель открылся, порт выдал relay');
+  const url = `wss://127.0.0.1:${tunnel.port}`;
+  const tlsOpts = { rejectUnauthorized: false };
+
+  // Друг входит с правильным паролем: рукопожатие, TLS и пароль идут сквозь мост.
+  let c = await rawClient(url, tlsOpts);
+  let ch = await c.next((m) => m.t === 'challenge');
+  assert.strictEqual(ch.needPassword, true);
+  c.send(JSON.stringify({ t: 'hello', uid: 'friend', name: 'Друг', proof: proofFor('секрет', ch) }));
+  const welcome = await c.next((m) => m.t === 'welcome');
+  assert.strictEqual(welcome.owner, false, 'через мост права владельца получить нельзя');
+  // Без пароля не пускают.
+  const anon = await rawClient(url, tlsOpts);
+  await anon.next((m) => m.t === 'challenge');
+  anon.send(JSON.stringify({ t: 'hello', uid: 'x', name: 'Чужой' }));
+  assert.strictEqual((await anon.next((m) => m.t === 'error')).code, 'need-password');
+  // Подбор пароля через мост блокирует общий «адрес» моста, а не локальный вход хозяина.
+  for (let i = 0; i < 3; i++) {
+    const bad = await rawClient(url, tlsOpts);
+    const bch = await bad.next((m) => m.t === 'challenge');
+    bad.send(JSON.stringify({ t: 'hello', uid: 'b' + i, name: 'x', proof: proofFor('не тот', bch) }));
+    assert.strictEqual((await bad.next((m) => m.t === 'error')).code, 'bad-password');
+  }
+  const blocked = await rawClient(url, tlsOpts);
+  assert.strictEqual((await blocked.next((m) => m.t === 'error')).code, 'refused', 'после ошибок мост временно закрыт для подбора');
+  // Хозяин и друзья по локальной сети не пострадали: у них свой счётчик ошибок.
+  const lan = await rawClient(`wss://127.0.0.1:${localPort}`, tlsOpts);
+  const lch = await lan.next((m) => m.t === 'challenge');
+  lan.send(JSON.stringify({ t: 'hello', uid: 'lan', name: 'Сосед', proof: proofFor('секрет', lch) }));
+  await lan.next((m) => m.t === 'welcome');
+  // Обрыв relay: мост переподключается и просит тот же порт, код для друзей не меняется.
+  const before = tunnel.port;
+  control.destroy();
+  await sleep(2500);
+  assert.ok(states.includes('reconnecting') && states.filter((s) => s === 'open').length >= 2, 'мост переподключился');
+  assert.strictEqual(helloAsked, before, 'после обрыва клиент просит прежний порт');
+  assert.strictEqual(tunnel.port, before, 'и получает его');
+  lan.close();
+  c.close();
+  tunnel.close();
+  await srv.stop();
+  await new Promise((r) => relay.close(r));
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 // Палитра: главные цвета, серые картинки без акцента, подгонка под светлую и тёмную тему, голос через интернет только вне локальной сети.
 function testPalette() {
   const vm = require('vm');
@@ -670,6 +769,7 @@ async function testLan() {
   await testDmPins(); console.log('ok  личные сообщения и закрепы');
   await testFiles(); console.log('ok  файлы: ключ, тип по содержимому, Range, удаление');
   testUpdater(); console.log('ok  обновление: адрес и версия проверяются строго');
+  await testBridge(); console.log('ok  интернет-мост: TLS, пароль, общий лимит, переподключение');
   testIcons(); console.log('ok  иконки: пути корректны, метки ведут на существующие иконки');
   testPalette(); console.log('ok  палитра аватарки и признак локального адреса');
   await testLan(); console.log('ok  поиск комнат в локальной сети');

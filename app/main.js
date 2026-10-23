@@ -11,6 +11,7 @@ const { startPresenceBridge } = require('./presence');
 const { startMediaWatch } = require('./media');
 const upnp = require('./upnp');
 const lan = require('./server/lan');
+const { openTunnel, HOST: RELAY_HOST } = require('./server/tunnel');
 const updater = require('./updater');
 
 // Одна копия приложения: повторный запуск просто показывает уже открытое окно (оно могло быть свёрнуто в трей).
@@ -62,7 +63,10 @@ let trayHintShown = false;
 let updateFile = null; // скачанный и проверенный архив обновления
 let lastCheck = null; // ответ GitHub о последнем релизе (только главный процесс)
 const prefs = { closeToTray: true };
-let pins = {}; // закреплённые отпечатки серверов: адрес -> sha256
+let pins = {}; // закреплённые отпечатки серверов: адрес (или адрес:порт) -> sha256
+const tlsTargets = new Map(); // хост -> порт, к которому интерфейс сейчас подключается
+let tunnel = null; // интернет-мост хозяина (server/tunnel.js)
+let bridgeInfo = null;
 
 // Все запросы из интерфейса принимаются только от нашей страницы в нашем окне.
 const isTrusted = (e) => {
@@ -324,18 +328,32 @@ function setupCertificates(ses) {
     const host = request.hostname;
     if (/^(127\.|localhost$|::1$)/.test(host)) { callback(0); return; }
     const fp = x509.fingerprint256;
-    if (!pins[host]) {
-      pins[host] = fp;
+    // Ключ закрепления: хост:порт, если интерфейс сообщил порт (через общий relay на одном адресе живёт много разных комнат).
+    // Старая запись без порта остаётся в силе: если отпечаток совпал, она переносится на новый ключ, если нет — это предупреждение, как раньше.
+    const port = tlsTargets.get(host);
+    const key = port ? `${host}:${port}` : host;
+    let expected = pins[key];
+    if (!expected && key !== host && pins[host]) {
+      if (pins[host] === fp) { pins[key] = fp; savePins(); } else expected = pins[host];
+    }
+    if (!expected && !pins[key]) {
+      pins[key] = fp;
       savePins();
-      tellUi('tls:event', { kind: 'new', host, fingerprint: fp });
+      tellUi('tls:event', { kind: 'new', host: key, fingerprint: fp });
       callback(0);
-    } else if (pins[host] === fp) {
+    } else if ((expected || pins[key]) === fp) {
       callback(0);
     } else {
-      tellUi('tls:event', { kind: 'mismatch', host, fingerprint: fp, expected: pins[host] });
+      tellUi('tls:event', { kind: 'mismatch', host: key, fingerprint: fp, expected: expected || pins[key] });
       callback(-2);
     }
   });
+}
+
+function closeBridge() {
+  if (tunnel) { try { tunnel.close(); } catch (e) { /* ignore */ } }
+  tunnel = null;
+  bridgeInfo = null;
 }
 
 async function closeMapping() {
@@ -398,6 +416,7 @@ function setupIpc() {
   });
   ipcMain.handle('host:stop', async () => {
     await closeMapping();
+    closeBridge();
     if (lanResponder) { lanResponder.close(); lanResponder = null; }
     if (roomServer) { await roomServer.stop(); roomServer = null; }
     hostPort = 0;
@@ -507,6 +526,7 @@ function setupIpc() {
   ipcMain.handle('room:bind', (e, b) => {
     const ok = b && /^([a-z0-9.-]{1,253}|\[[0-9a-f:]+\])$/i.test(String(b.host)) && Number.isInteger(b.port) && b.port > 0 && b.port < 65536 && /^[0-9a-f]{32}$/.test(String(b.token));
     roomBinding = ok ? { host: String(b.host), port: b.port, token: String(b.token) } : null;
+    if (roomBinding) tlsTargets.set(roomBinding.host, roomBinding.port);
     return !!roomBinding;
   });
   ipcMain.handle('room:upload', async (e, f) => {
@@ -613,6 +633,38 @@ function setupIpc() {
   });
   ipcMain.handle('net:close-internet', async () => { await closeMapping(); return true; });
   ipcMain.handle('tls:pins', () => Object.entries(pins).map(([host, fingerprint]) => ({ host, fingerprint })));
+  // Интернет-мост: комната открывается через публичный relay (bore). Только с паролем комнаты, как и UPnP.
+  ipcMain.handle('bridge:open', async (e, opts) => {
+    if (!roomServer || !hostPort) throw new Error('Сначала запустите сервер');
+    if (!hostHasPassword) throw new Error('Для доступа из интернета задайте пароль сети: без него в комнату сможет войти кто угодно');
+    const relay = String(opts && opts.relay || 'bore.pub').trim().toLowerCase();
+    if (!RELAY_HOST.test(relay)) throw new Error('Некорректный адрес relay');
+    closeBridge();
+    const file = path.join(userDir(), 'bridge.json');
+    let saved = {};
+    try { saved = JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch (err) { /* первого запуска ещё не было */ }
+    const srv = roomServer;
+    tunnel = await openTunnel({
+      relay, preferPort: saved[relay] || 0, adopt: (socket) => srv.adoptBridged(socket),
+      onState: (state, info) => {
+        if (state === 'open') {
+          bridgeInfo = { relay, port: info.port, code: `${relay}:${info.port}` };
+          // Тот же порт в следующий раз: код для друзей не меняется.
+          saved[relay] = info.port;
+          try { fs.writeFileSync(file, JSON.stringify(saved)); } catch (err) { /* ignore */ }
+        }
+        tellUi('bridge:state', { state, ...(bridgeInfo || {}), error: info.error || null });
+      },
+    });
+    return bridgeInfo;
+  });
+  ipcMain.handle('bridge:close', () => { closeBridge(); return true; });
+  ipcMain.handle('bridge:info', () => bridgeInfo);
+  // Интерфейс сообщает, к какому порту подключается: по нему выбирается запись закрепления сертификата.
+  ipcMain.handle('tls:target', (e, host, port) => {
+    if (typeof host === 'string' && host.length < 256 && Number.isInteger(port) && port > 0 && port < 65536) tlsTargets.set(host, port);
+    return true;
+  });
   ipcMain.handle('tls:forget', (e, host) => { delete pins[String(host)]; savePins(); return true; });
   ipcMain.handle('tls:self', async () => {
     hostCert = hostCert || await ensureCert(userDir());
@@ -693,6 +745,7 @@ app.on('window-all-closed', async () => {
   if (bridge) bridge.stop();
   if (media) media.stop();
   if (lanResponder) lanResponder.close();
+  closeBridge();
   await closeMapping();
   if (roomServer) await roomServer.stop();
   app.quit();

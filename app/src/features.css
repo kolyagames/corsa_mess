@@ -1,6 +1,38 @@
 /* Новые элементы интерфейса: реакции, ответы, правка, «печатает…», каналы 18+, таблички, значки, эффекты,
    плотность и вид сообщений, фон приложения, плагины, поиск комнат в сети. */
 
+/* ---------- Иконки (icons.js) ----------
+   База — вид «Неон»: тонкие угловые линии и свечение. Остальные дизайны меняют толщину, закругления и заливку в designs.css.
+   .f — закрытая фигура (можно закрашивать), .d — деталь поверх неё (глаза, зрачок, кнопки). */
+body { --ic-cut: var(--bg-2); }
+.ic { display: inline-flex; width: 1.2em; height: 1.2em; vertical-align: -.25em; flex: none; line-height: 1; }
+.ic svg { width: 100%; height: 100%; overflow: visible; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: square; stroke-linejoin: miter; filter: drop-shadow(0 0 2.5px color-mix(in srgb, currentColor 70%, transparent)); }
+.ic svg .f { fill: color-mix(in srgb, currentColor 10%, transparent); }
+.ic.solid svg { filter: none; }
+.ic.solid svg .f { fill: currentColor; stroke: none; }
+.ic.solid svg .d { stroke: var(--bg-0); }
+.ic-st-online { color: var(--online); }
+.ic-st-off { color: #6b5a5d; }
+.ic-st-dnd { color: #f23f43; }
+.sm-item .ic-moon { color: #f0b232; }
+.nav-ic { display: inline-flex; justify-content: center; align-items: center; }
+.nav-ic .ic { width: 17px; height: 17px; }
+.icon-btn .ic { width: 1.15em; height: 1.15em; }
+.btn .ic { vertical-align: -.28em; }
+.group-label.cat .arrow .ic { width: 1.3em; height: 1.3em; }
+.bdg .ic { width: 1.15em; height: 1.15em; }
+.rr-arrow .ic { width: 1em; height: 1em; }
+.att-ic .ic { width: 1.3em; height: 1.3em; }
+.empty .ic, .hint .ic { vertical-align: -.2em; }
+.search-wrap { position: relative; display: inline-flex; align-items: center; flex: none; }
+.search-wrap > .ic { position: absolute; left: 9px; width: 14px; height: 14px; color: var(--muted); pointer-events: none; }
+.search-wrap .head-search { padding-left: 30px; }
+/* Фон под иконкой для «вырезанных» деталей: в контекстах с другим фоном подсказываем нужный цвет. */
+.nav.on, .chip.on, .tab.on, .sm-item.on { --ic-cut: var(--accent-dim); }
+.btn.primary, .rail-btn.on, .nav .badge, .design-card.on { --ic-cut: var(--accent); }
+.btn, .icon-btn:hover, .sb-item { --ic-cut: var(--panel-hi); }
+.member, .contact-card, .list-item, .plugin-card { --ic-cut: var(--panel); }
+
 /* Нижняя панель с именем: кнопок стало больше, поэтому они компактнее, а колонка чуть шире. */
 .side { width: 262px; }
 .userbar { gap: 2px; padding: 8px 6px; }

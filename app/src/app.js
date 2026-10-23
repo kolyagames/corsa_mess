@@ -32,10 +32,10 @@
   const PLATES = [['none', 'Нет'], ['aurora', 'Сияние'], ['sunset', 'Закат'], ['ocean', 'Океан'], ['void', 'Пустота'], ['grid', 'Сетка'], ['candy', 'Конфета'], ['forest', 'Лес']];
   const CARD_STYLES = [['default', 'Обычная'], ['glass', 'Стекло'], ['solid', 'Сплошная'], ['outline', 'Контур']];
   const BADGES = {
-    early: ['🌱', 'Ранний'], gamer: ['🎮', 'Игрок'], music: ['🎵', 'Меломан'], dev: ['💻', 'Разработчик'], artist: ['🎨', 'Художник'], night: ['🌙', 'Сова'],
-    streamer: ['📺', 'Стример'], cat: ['🐱', 'Котик'], heart: ['💖', 'Добряк'], star: ['⭐', 'Звезда'], bolt: ['⚡', 'Быстрый'], skull: ['💀', 'Жуть'],
+    early: ['{{ic:sprout}}', 'Ранний'], gamer: ['{{ic:gamepad}}', 'Игрок'], music: ['{{ic:note}}', 'Меломан'], dev: ['{{ic:code}}', 'Разработчик'], artist: ['{{ic:palette}}', 'Художник'], night: ['{{ic:moon}}', 'Сова'],
+    streamer: ['{{ic:tv}}', 'Стример'], cat: ['{{ic:cat}}', 'Котик'], heart: ['{{ic:heart}}', 'Добряк'], star: ['{{ic:star}}', 'Звезда'], bolt: ['{{ic:bolt}}', 'Быстрый'], skull: ['{{ic:skull}}', 'Жуть'],
   };
-  const STATUSES = [['online', '🟢', 'В сети'], ['idle', '🌙', 'Не на месте'], ['dnd', '⛔', 'Не беспокоить'], ['invisible', '⚫', 'Невидимка']];
+  const STATUSES = [['online', '{{ic:st-online}}', 'В сети'], ['idle', '{{ic:moon}}', 'Не на месте'], ['dnd', '{{ic:st-dnd}}', 'Не беспокоить'], ['invisible', '{{ic:st-off}}', 'Невидимка']];
   const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🎉', '👀', '💯', '😎', '🙏', '✅'];
   const PROFILE_DEFAULTS = {
     name: 'Игрок', bio: '', avatar: '', banner: '', bg: '', color: '', frame: 'none', nameFx: 'none', tag: '', custom: '', pronouns: '',
@@ -124,7 +124,7 @@
     if (!a) return null;
     const parts = [a.details, a.state].filter(Boolean).join(' · ');
     const since = a.startedAt && a.kind !== 'music' ? ' — ' + C.fmtElapsed(a.startedAt) : '';
-    return h('span', null, a.kind === 'music' ? '🎵 ' : '', h('b', null, a.name), parts ? ' · ' + parts : '', since);
+    return h('span', null, a.kind === 'music' ? '{{ic:note}} ' : '', h('b', null, a.name), parts ? ' · ' + parts : '', since);
   }
 
   const statusLabel = (m) => ({ online: 'В сети', idle: 'Не на месте', dnd: 'Не беспокоить' }[m.status] || 'Не в сети');
@@ -146,7 +146,7 @@
     document.querySelectorAll('.rx-pop, .sb-pop, .head-pop, .ctx-menu').forEach((x) => x.remove());
     const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(); } });
     const box = h('div', { class: 'modal' + (wide ? ' wide' : '') + (cls ? ' ' + cls : '') },
-      h('button', { class: 'icon-btn close', title: 'Закрыть', onclick: () => close() }, '✕'), content);
+      h('button', { class: 'icon-btn close', title: 'Закрыть', onclick: () => close() }, '{{ic:close}}'), content);
     overlay.append(box);
     const onKey = (e) => { if (e.key === 'Escape') close(); };
     document.addEventListener('keydown', onKey);
@@ -230,7 +230,7 @@
       let dlg = null;
       const done = (val) => { resolve(val); if (dlg) dlg.close(); };
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') done({ password: input.value, remember: remember.checked }); });
-      dlg = modal(h('div', { class: 'modal-body' }, h('h3', { style: { marginTop: 0 } }, '🔒 Закрытая сеть'),
+      dlg = modal(h('div', { class: 'modal-body' }, h('h3', { style: { marginTop: 0 } }, '{{ic:lock}} Закрытая сеть'),
         h('div', { class: 'hint' }, `Комната ${addr.host}:${addr.port} защищена паролем.`),
         wrong ? h('div', { class: 'hint bad' }, 'Неверный пароль, попробуйте ещё раз.') : null,
         h('label', { class: 'lbl' }, 'Пароль'), input,
@@ -747,10 +747,10 @@
         class: 'rail-btn' + (active ? ' on' : '') + (room.pinned ? ' pinned' : ''),
         onclick: () => { if (!active) connectTo({ host: room.host, port: room.port }); },
         oncontextmenu: (e) => contextMenu(e, [
-          { label: room.pinned ? '📌 Открепить' : '📌 Закрепить сверху', onclick: () => { room.pinned = !room.pinned; store.set('rooms', S.rooms); renderRail(); } },
-          { label: '📋 Скопировать код', onclick: () => copy(room.code) },
-          active ? { label: '⏏ Отключиться', onclick: () => disconnect() } : null,
-          { label: '✕ Убрать из списка', danger: true, onclick: () => { S.rooms = S.rooms.filter((x) => x !== room); store.set('rooms', S.rooms); renderAll(); } },
+          { label: room.pinned ? '{{ic:pin}} Открепить' : '{{ic:pin}} Закрепить сверху', onclick: () => { room.pinned = !room.pinned; store.set('rooms', S.rooms); renderRail(); } },
+          { label: '{{ic:copy}} Скопировать код', onclick: () => copy(room.code) },
+          active ? { label: '{{ic:eject}} Отключиться', onclick: () => disconnect() } : null,
+          { label: '{{ic:close}} Убрать из списка', danger: true, onclick: () => { S.rooms = S.rooms.filter((x) => x !== room); store.set('rooms', S.rooms); renderAll(); } },
         ]),
       }, (room.name || '?').charAt(0).toUpperCase());
       tooltip(b, () => [room.name, ...C.plugins.collect('roomTooltip', room)]);
@@ -776,23 +776,23 @@
         onclick: () => { S.view = view; if (view.channel) { S.unread[view.channel] = 0; S.mentions[view.channel] = 0; } updateTitle(); renderAll(); },
         oncontextmenu: ch && ch.type === 'text' ? (e) => {
           const muted = isMutedChannel(ch.id);
-          contextMenu(e, [{ label: muted ? '🔔 Снова уведомлять' : '🔕 Не уведомлять (кроме упоминаний)', onclick: () => {
+          contextMenu(e, [{ label: muted ? '{{ic:bell}} Снова уведомлять' : '{{ic:bell-off}} Не уведомлять (кроме упоминаний)', onclick: () => {
             const list = new Set(store.get('mutedChannels', []));
             if (muted) list.delete(mutedKey(ch.id)); else list.add(mutedKey(ch.id));
             store.set('mutedChannels', [...list]);
             renderSide();
-          } }, { label: '✓ Отметить прочитанным', onclick: () => { S.unread[ch.id] = 0; S.mentions[ch.id] = 0; updateTitle(); renderSide(); } }]);
+          } }, { label: '{{ic:check}} Отметить прочитанным', onclick: () => { S.unread[ch.id] = 0; S.mentions[ch.id] = 0; updateTitle(); renderSide(); } }]);
         } : null,
       }, h('span', { class: 'nav-ic' }, icon), h('span', { class: 'nav-label' }, label), ...(ch ? C.plugins.collect('channel', { channel: ch, typing: typersIn(ch.id) }) : []),
-      ch && ch.type === 'text' && isMutedChannel(ch.id) ? h('span', { class: 'muted-ic', title: 'Уведомления выключены' }, '🔕') : null, extra);
+      ch && ch.type === 'text' && isMutedChannel(ch.id) ? h('span', { class: 'muted-ic', title: 'Уведомления выключены' }, '{{ic:bell-off}}') : null, extra);
       if (ch && ch.topic) node.title = ch.topic;
       return node;
     };
 
     scroll.append(...C.plugins.collect('sideTop', {}));
-    scroll.append(nav('🏠', 'Главная', { type: 'home' }));
+    scroll.append(nav('{{ic:home}}', 'Главная', { type: 'home' }));
     if (S.conn) {
-      scroll.append(nav('👥', 'Друзья', { type: 'friends' }));
+      scroll.append(nav('{{ic:users}}', 'Друзья', { type: 'friends' }));
       // Личные беседы: сверху самые свежие.
       const convs = Object.entries(S.dms).filter(([p]) => !S.blocked.has(p)).sort((a, b) => (b[1].last || 0) - (a[1].last || 0));
       if (convs.length) {
@@ -809,7 +809,7 @@
               delete S.dms[peer]; saveDms();
               if (S.view.type === 'dm' && S.view.peer === peer) S.view = firstTextView();
               renderAll();
-            } }, '✕')));
+            } }, '{{ic:close}}')));
         }
       }
       // Каналы по категориям; категорию можно свернуть, выбор запоминается.
@@ -827,7 +827,7 @@
           if (closed) collapsed.delete(category); else collapsed.add(category);
           store.set('collapsed', [...collapsed]);
           renderSide();
-        } }, h('span', { class: 'arrow' }, '▾'), h('span', null, category), closed && unread ? h('span', { class: 'badge' }, unread) : null));
+        } }, h('span', { class: 'arrow' }, '{{ic:chevron-down}}'), h('span', null, category), closed && unread ? h('span', { class: 'badge' }, unread) : null));
         if (closed) continue;
         for (const ch of list) {
           if (ch.type === 'text') {
@@ -835,12 +835,12 @@
             const at = S.mentions[ch.id];
             scroll.append(nav('#', ch.name, { type: 'text', channel: ch.id }, at ? h('span', { class: 'badge mention' }, '@' + at) : n ? h('span', { class: 'badge' }, n) : null, ch));
           } else {
-            scroll.append(nav('🔊', ch.name, { type: 'voice', channel: ch.id }, null, ch));
+            scroll.append(nav('{{ic:speaker}}', ch.name, { type: 'voice', channel: ch.id }, null, ch));
             const inside = (S.conn.voice[ch.id] || []).map((sid) => S.conn.members.get(sid)).filter(Boolean);
             if (inside.length) {
               scroll.append(h('div', { class: 'voice-members' }, inside.map((m) =>
                 h('div', { class: 'voice-member', dataset: { sid: m.sid }, onclick: () => openProfileCard(m) }, avatarEl(m), nameEl(m, { tag: false }),
-                  h('span', { class: 'vflags' }, m.screen ? h('span', { class: 'live' }, 'LIVE') : null, m.camera ? '📷' : null, m.muted ? '🔇' : null, m.deaf ? '🙉' : null)))));
+                  h('span', { class: 'vflags' }, m.screen ? h('span', { class: 'live' }, 'LIVE') : null, m.camera ? '{{ic:camera}}' : null, m.muted ? '{{ic:mic-off}}' : null, m.deaf ? '{{ic:headphones-off}}' : null)))));
             }
           }
         }
@@ -855,7 +855,7 @@
       title: S.conn && S.conn.owner ? 'Настройки комнаты' : '',
       onclick: () => { if (S.conn && S.conn.owner) openSettings('room'); },
     }, h('span', { class: 'room-name' }, room ? room.name : 'corsa-mess'), S.conn ? h('span', { class: 'ping', id: 'ping' }) : null);
-    const updateBar = S.update && S.update.newer ? h('div', { class: 'update-bar', onclick: () => openSettings('updates') }, `⬆ Доступна версия ${S.update.version}`, h('span', null, 'Обновить')) : null;
+    const updateBar = S.update && S.update.newer ? h('div', { class: 'update-bar', onclick: () => openSettings('updates') }, `{{ic:arrow-up}} Доступна версия ${S.update.version}`, h('span', null, 'Обновить')) : null;
     s.replaceChildren(...[header, scroll, ...C.plugins.collect('sideBottom', {}), updateBar, h('div', { class: 'userbar', id: 'userbar' })].filter(Boolean));
     renderUserbar();
     renderPing();
@@ -876,16 +876,16 @@
     if (!bar) return;
     const v = S.voice;
     const st = STATUSES.find((x) => x[0] === wireStatus());
-    let sub = S.status === 'invisible' ? 'Невидимка' : S.activity ? (S.activity.kind === 'music' ? '🎵 ' : '') + S.activity.name : st ? st[2] : 'В сети';
+    let sub = S.status === 'invisible' ? 'Невидимка' : S.activity ? (S.activity.kind === 'music' ? '{{ic:note}} ' : '') + S.activity.name : st ? st[2] : 'В сети';
     sub = C.plugins.intercept('userbarSub', sub);
     bar.replaceChildren(...[
       h('div', { class: 'who', onclick: (e) => openSelfMenu(e.currentTarget), title: 'Профиль' },
         avatarEl({ ...S.profile }, { status: S.status === 'invisible' ? 'offline' : wireStatus() }),
         h('div', { style: { minWidth: 0 } }, h('div', { class: 'name' }, nameEl(S.profile, { tag: false })), h('div', { class: 'sub' }, sub))),
       ...C.plugins.collect('userbar', {}),
-      v && v.inChannel ? h('button', { class: 'icon-btn' + (v.muted ? ' off' : ''), title: 'Микрофон', onclick: () => v.setMuted(!v.muted) }, v.muted ? '🔇' : '🎙') : null,
-      v && v.inChannel ? h('button', { class: 'icon-btn' + (v.deafened ? ' off' : ''), title: 'Звук', onclick: () => v.setDeafened(!v.deafened) }, v.deafened ? '🙉' : '🎧') : null,
-      h('button', { class: 'icon-btn', title: 'Настройки', onclick: () => openSettings() }, '⚙'),
+      v && v.inChannel ? h('button', { class: 'icon-btn' + (v.muted ? ' off' : ''), title: 'Микрофон', onclick: () => v.setMuted(!v.muted) }, v.muted ? '{{ic:mic-off}}' : '{{ic:mic}}') : null,
+      v && v.inChannel ? h('button', { class: 'icon-btn' + (v.deafened ? ' off' : ''), title: 'Звук', onclick: () => v.setDeafened(!v.deafened) }, v.deafened ? '{{ic:headphones-off}}' : '{{ic:headphones}}') : null,
+      h('button', { class: 'icon-btn', title: 'Настройки', onclick: () => openSettings() }, '{{ic:gear}}'),
     ].filter(Boolean));
   }
 
@@ -906,11 +906,11 @@
 
   function memberMenu(m) {
     return [
-      { label: '👤 Профиль', onclick: () => openProfileCard(m) },
-      S.conn && m.sid !== S.conn.sid ? { label: '✉ Написать лично', onclick: () => openDm(m.uid) } : null,
+      { label: '{{ic:user}} Профиль', onclick: () => openProfileCard(m) },
+      S.conn && m.sid !== S.conn.sid ? { label: '{{ic:mail}} Написать лично', onclick: () => openDm(m.uid) } : null,
       { label: '@ Упомянуть', onclick: () => { const f = document.querySelector('.composer .field'); if (f) { f.value += `@${m.name} `; f.focus(); } } },
-      S.conn && m.sid !== S.conn.sid ? { label: S.blocked.has(m.uid) ? '✓ Разблокировать у себя' : '🚫 Скрыть у себя', onclick: () => toggleBlock(m.uid, m.name) } : null,
-      S.conn && S.conn.owner && m.sid !== S.conn.sid ? { label: '🚪 Выгнать', danger: true, onclick: () => S.conn.send({ t: 'kick', sid: m.sid }) } : null,
+      S.conn && m.sid !== S.conn.sid ? { label: S.blocked.has(m.uid) ? '{{ic:check}} Разблокировать у себя' : '{{ic:block}} Скрыть у себя', onclick: () => toggleBlock(m.uid, m.name) } : null,
+      S.conn && S.conn.owner && m.sid !== S.conn.sid ? { label: '{{ic:door}} Выгнать', danger: true, onclick: () => S.conn.send({ t: 'kick', sid: m.sid }) } : null,
     ];
   }
 
@@ -981,8 +981,8 @@
   function lanItems() {
     if (!S.settings.lanScan) return [h('div', { class: 'hint' }, 'Поиск выключен в Настройки → Сеть.')];
     if (!S.lan.length) return [h('div', { class: 'hint' }, 'Пока никого. Комнаты друзей из той же сети (или из общей сети Radmin, ZeroTier, Hamachi) появятся здесь сами.')];
-    return S.lan.map((r) => h('div', { class: 'saved lan-room' }, h('div', { class: 'lan-ic' }, '📡'),
-      h('div', { class: 'grow' }, h('b', null, (r.locked ? '🔒 ' : '') + r.name + (r.mine ? ' (ваша)' : '')),
+    return S.lan.map((r) => h('div', { class: 'saved lan-room' }, h('div', { class: 'lan-ic' }, '{{ic:antenna}}'),
+      h('div', { class: 'grow' }, h('b', null, (r.locked ? '{{ic:lock}} ' : '') + r.name + (r.mine ? ' (ваша)' : '')),
         h('div', { class: 'hint' }, `${r.host}:${r.port} · ${r.members}${r.max ? '/' + r.max : ''} в комнате`)),
       h('button', { class: 'btn primary', onclick: () => connectTo({ host: r.mine ? '127.0.0.1' : r.host, port: r.port }) }, 'Войти')));
   }
@@ -1027,7 +1027,7 @@
       const kindLabel = { lan: 'Локальная сеть', vpn: 'VPN-сеть', other: 'Сеть' };
       const codes = (hs.codes || []).filter((c) => c.code !== hs.code);
       hostCard.append(
-        h('div', { class: 'hint' }, `Сервер работает. ${hs.protected ? '🔒 Закрыт паролем.' : '⚠ Пароля нет: войти может любой, кто знает адрес.'} ${hs.lanVisible ? 'Комната видна друзьям в вашей сети на главной странице.' : ''} Код для друзей в той же сети:`),
+        h('div', { class: 'hint' }, `Сервер работает. ${hs.protected ? '{{ic:lock}} Закрыт паролем.' : '{{ic:warn}} Пароля нет: войти может любой, кто знает адрес.'} ${hs.lanVisible ? 'Комната видна друзьям в вашей сети на главной странице.' : ''} Код для друзей в той же сети:`),
         h('div', { class: 'code-box' }, hs.code || 'нет сети'),
         h('div', { class: 'row' }, hs.code ? h('button', { class: 'btn', onclick: () => copy(hs.code) }, 'Скопировать код') : null,
           h('button', { class: 'btn danger', onclick: async () => { await disconnect(); await native.hostStop(); S.hosting = null; renderMain(); } }, 'Остановить')),
@@ -1053,12 +1053,12 @@
     }
 
     const saved = S.rooms.length ? h('div', { style: { marginTop: '14px' } }, h('label', { class: 'lbl' }, 'Недавние комнаты'),
-      ...S.rooms.map((r) => h('div', { class: 'saved' }, h('div', { class: 'grow' }, h('b', null, (r.pinned ? '📌 ' : '') + (r.locked ? '🔒 ' : '') + r.name), h('div', { class: 'hint' }, r.code)),
+      ...S.rooms.map((r) => h('div', { class: 'saved' }, h('div', { class: 'grow' }, h('b', null, (r.pinned ? '{{ic:pin}} ' : '') + (r.locked ? '{{ic:lock}} ' : '') + r.name), h('div', { class: 'hint' }, r.code)),
         h('button', { class: 'btn', onclick: () => connectTo({ host: r.host, port: r.port }) }, 'Войти'),
-        h('button', { class: 'icon-btn', title: 'Убрать', onclick: () => { S.rooms = S.rooms.filter((x) => x !== r); store.set('rooms', S.rooms); renderAll(); } }, '✕')))) : null;
+        h('button', { class: 'icon-btn', title: 'Убрать', onclick: () => { S.rooms = S.rooms.filter((x) => x !== r); store.set('rooms', S.rooms); renderAll(); } }, '{{ic:close}}')))) : null;
 
     const lanCard = h('div', { class: 'card lan-card' }, h('div', { class: 'row' }, h('h3', { class: 'grow' }, 'В вашей сети'),
-      h('button', { class: 'icon-btn', title: 'Обновить', onclick: () => scanLan() }, '⟳')),
+      h('button', { class: 'icon-btn', title: 'Обновить', onclick: () => scanLan() }, '{{ic:refresh}}')),
     h('div', { class: 'hint' }, 'Комнаты, запущенные в вашей локальной сети. Код вводить не нужно.'), h('div', { id: 'lan-list' }, ...lanItems()));
 
     m.replaceChildren(h('div', { class: 'page' },
@@ -1106,11 +1106,11 @@
     const list = S.friendsTab === 'online' ? members.filter(isOn) : members;
     const tab = (id, label) => h('div', { class: 'tab' + (S.friendsTab === id ? ' on' : ''), onclick: () => { S.friendsTab = id; renderMain(); } }, label);
     m.replaceChildren(
-      h('div', { class: 'main-head' }, h('span', { class: 'title' }, '👥 Друзья'), h('div', { class: 'tabs' }, tab('online', 'В сети'), tab('all', 'Все'))),
+      h('div', { class: 'main-head' }, h('span', { class: 'title' }, '{{ic:users}} Друзья'), h('div', { class: 'tabs' }, tab('online', 'В сети'), tab('all', 'Все'))),
       h('div', { class: 'page' }, h('div', { class: 'group-label', style: { padding: '0 0 8px' } }, `${S.friendsTab === 'online' ? 'В сети' : 'Все'} — ${list.length}`),
         ...list.map((u) => h('div', { class: 'member friend-row', onclick: () => openProfileCard(u) }, avatarEl(u, { status: u.status }),
           h('div', { class: 'meta grow' }, h('div', { class: 'nm' }, nameEl(u)), h('div', { class: 'act' }, u.activity ? activityLine(u.activity) : u.custom || statusLabel(u))),
-          u.sid !== S.conn.sid ? h('button', { class: 'icon-btn', title: 'Написать лично', onclick: (e) => { e.stopPropagation(); openDm(u.uid); } }, '✉') : null))));
+          u.sid !== S.conn.sid ? h('button', { class: 'icon-btn', title: 'Написать лично', onclick: (e) => { e.stopPropagation(); openDm(u.uid); } }, '{{ic:mail}}') : null))));
   }
 
   // ---------- Вложения ----------
@@ -1131,19 +1131,19 @@
       const save = h('button', { class: 'att-save', title: 'Скачать', onclick: (e) => {
         e.stopPropagation();
         native.saveRoomFile({ id: f.id, name: f.name }).then((p) => { if (p) C.toast('Сохранено: ' + p); }).catch((err) => C.toast(cleanErr(err)));
-      } }, '⬇');
+      } }, '{{ic:download}}');
       if (f.kind === 'image') {
         const img = h('img', { src: fileUrl(f), loading: 'lazy', alt: f.name, onclick: () => viewImage(fileUrl(f)) });
-        img.addEventListener('error', () => img.replaceWith(h('div', { class: 'hint att-gone' }, `🖼 ${f.name} — недоступна (комната выключена или файл удалён)`)));
+        img.addEventListener('error', () => img.replaceWith(h('div', { class: 'hint att-gone' }, `{{ic:image}} ${f.name} — недоступна (комната выключена или файл удалён)`)));
         box.append(h('div', { class: 'att att-img' }, img, save));
       } else if (f.kind === 'video') {
         box.append(h('div', { class: 'att att-video' }, h('video', { src: fileUrl(f), controls: true, preload: 'metadata' }), save));
       } else if (f.kind === 'audio') {
-        box.append(h('div', { class: 'att att-audio' + (f.voice ? ' voice' : '') }, h('span', { class: 'att-ic' }, f.voice ? '🎙' : '🎵'),
+        box.append(h('div', { class: 'att att-audio' + (f.voice ? ' voice' : '') }, h('span', { class: 'att-ic' }, f.voice ? '{{ic:mic}}' : '{{ic:note}}'),
           h('div', { class: 'grow' }, h('div', { class: 'att-name' }, f.voice ? 'Голосовое сообщение' + (f.dur ? ' · ' + fmtDur(f.dur) : '') : f.name),
             h('audio', { src: fileUrl(f), controls: true, preload: 'metadata' })), save));
       } else {
-        box.append(h('div', { class: 'att att-file' }, h('span', { class: 'att-ic' }, '📄'),
+        box.append(h('div', { class: 'att att-file' }, h('span', { class: 'att-ic' }, '{{ic:file}}'),
           h('div', { class: 'grow' }, h('div', { class: 'att-name' }, f.name), h('div', { class: 'hint' }, fmtSize(f.size))), save));
       }
     }
@@ -1188,9 +1188,9 @@
     const strip = h('div', { class: 'att-strip' });
     const draw = () => {
       strip.replaceChildren(...pending.map((p, i) => h('div', { class: 'att-chip' },
-        p.type.startsWith('image/') ? h('img', { src: p.url, alt: '' }) : h('span', { class: 'att-ic' }, p.type.startsWith('video/') ? '🎬' : p.type.startsWith('audio/') ? '🎵' : '📄'),
+        p.type.startsWith('image/') ? h('img', { src: p.url, alt: '' }) : h('span', { class: 'att-ic' }, p.type.startsWith('video/') ? '{{ic:film}}' : p.type.startsWith('audio/') ? '{{ic:note}}' : '{{ic:file}}'),
         h('span', { class: 'att-cn' }, p.name), h('span', { class: 'hint' }, fmtSize(p.file.size)),
-        h('button', { class: 'icon-btn', title: 'Убрать', onclick: () => { URL.revokeObjectURL(p.url); pending.splice(i, 1); draw(); } }, '✕'))));
+        h('button', { class: 'icon-btn', title: 'Убрать', onclick: () => { URL.revokeObjectURL(p.url); pending.splice(i, 1); draw(); } }, '{{ic:close}}'))));
       strip.classList.toggle('on', pending.length > 0);
     };
     const add = (files) => {
@@ -1204,7 +1204,7 @@
     };
     const input = h('input', { type: 'file', multiple: true, style: { display: 'none' } });
     input.addEventListener('change', () => { add([...input.files]); input.value = ''; });
-    const button = h('button', { class: 'btn', title: 'Прикрепить файл. Можно и вставить (Ctrl+V) или перетащить в чат', onclick: () => input.click() }, '📎', input);
+    const button = h('button', { class: 'btn', title: 'Прикрепить файл. Можно и вставить (Ctrl+V) или перетащить в чат', onclick: () => input.click() }, '{{ic:paperclip}}', input);
     field.addEventListener('paste', (e) => { const fl = [...((e.clipboardData && e.clipboardData.files) || [])]; if (fl.length) { e.preventDefault(); add(fl); } });
     for (const area of areas) {
       area.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); area.classList.add('drop'); } });
@@ -1264,8 +1264,8 @@
     if (!bar) return;
     if (!S.replyTo) { bar.replaceChildren(); bar.classList.remove('on'); return; }
     bar.classList.add('on');
-    bar.replaceChildren(h('span', null, '↩ Ответ для ', h('b', null, S.replyTo.name), ': ', plainText(S.replyTo.text).slice(0, 80)),
-      h('button', { class: 'icon-btn', title: 'Отменить ответ', onclick: () => setReply(null) }, '✕'));
+    bar.replaceChildren(h('span', null, '{{ic:reply}} Ответ для ', h('b', null, S.replyTo.name), ': ', plainText(S.replyTo.text).slice(0, 80)),
+      h('button', { class: 'icon-btn', title: 'Отменить ответ', onclick: () => setReply(null) }, '{{ic:close}}'));
     const f = document.querySelector('.composer .field');
     if (f) f.focus();
   }
@@ -1299,7 +1299,7 @@
     // Автор заблокирован у вас: вместо сообщения короткая заглушка, по клику можно посмотреть.
     if (!force && S.blocked.has(msg.uid)) {
       const stub = h('div', { class: 'msg blocked-msg', dataset: { id: msg.id, uid: msg.uid || '', ts: String(msg.ts) } },
-        h('span', { class: 'hint', onclick: () => stub.replaceWith(messageNode(msg, channel, false, true)) }, '🚫 Сообщение заблокированного участника. Показать'));
+        h('span', { class: 'hint', onclick: () => stub.replaceWith(messageNode(msg, channel, false, true)) }, '{{ic:block}} Сообщение заблокированного участника. Показать'));
       return stub;
     }
     const shown = C.plugins.transformMessage(msg);
@@ -1315,29 +1315,29 @@
     const mine = shown.uid === S.conn.meId;
     const canDelete = mine || S.conn.owner;
     const tools = h('div', { class: 'msg-tools' },
-      h('button', { title: 'Реакция', onclick: (e) => reactionPicker(e.currentTarget, channel, msg) }, '😀'),
-      h('button', { title: 'Ответить', onclick: () => setReply(msg) }, '↩'),
-      mine && msg.text ? h('button', { title: 'Изменить', onclick: () => startEdit(node, msg, channel) }, '✎') : null,
-      canDelete ? h('button', { title: msg.pinned ? 'Открепить' : 'Закрепить', onclick: () => S.conn.send({ t: 'pin', channel, id: msg.id, on: !msg.pinned }) }, msg.pinned ? '📍' : '📌') : null,
-      canDelete ? h('button', { title: 'Удалить', class: 'danger', onclick: (e) => deleteMsg(msg, channel, !e.shiftKey) }, '🗑') : null,
+      h('button', { title: 'Реакция', onclick: (e) => reactionPicker(e.currentTarget, channel, msg) }, '{{ic:smile}}'),
+      h('button', { title: 'Ответить', onclick: () => setReply(msg) }, '{{ic:reply}}'),
+      mine && msg.text ? h('button', { title: 'Изменить', onclick: () => startEdit(node, msg, channel) }, '{{ic:pencil}}') : null,
+      canDelete ? h('button', { title: msg.pinned ? 'Открепить' : 'Закрепить', onclick: () => S.conn.send({ t: 'pin', channel, id: msg.id, on: !msg.pinned }) }, msg.pinned ? '{{ic:unpin}}' : '{{ic:pin}}') : null,
+      canDelete ? h('button', { title: 'Удалить', class: 'danger', onclick: (e) => deleteMsg(msg, channel, !e.shiftKey) }, '{{ic:trash}}') : null,
       ...C.plugins.collect('msgTools', { msg, channel }));
     const mentionsMe = shown.text && S.profile.name && shown.text.toLowerCase().includes('@' + S.profile.name.toLowerCase());
     const node = h('div', { class: 'msg' + (mine ? ' mine' : '') + (cont ? ' cont' : '') + (mentionsMe ? ' mention' : ''), dataset: { id: msg.id, uid: shown.uid || '', ts: String(shown.ts) },
       oncontextmenu: (e) => contextMenu(e, [
-        { label: '😀 Реакция', onclick: () => reactionPicker(tools, channel, msg) },
-        { label: '↩ Ответить', onclick: () => setReply(msg) },
-        msg.text ? { label: '📋 Скопировать текст', onclick: () => copy(msg.text) } : null,
-        mine && msg.text ? { label: '✎ Изменить', onclick: () => startEdit(node, msg, channel) } : null,
-        canDelete ? { label: msg.pinned ? '📍 Открепить' : '📌 Закрепить', onclick: () => S.conn.send({ t: 'pin', channel, id: msg.id, on: !msg.pinned }) } : null,
-        !mine && mem ? { label: '✉ Написать лично', onclick: () => openDm(mem.uid) } : null,
-        canDelete ? { label: '🗑 Удалить', danger: true, onclick: () => deleteMsg(msg, channel) } : null,
+        { label: '{{ic:smile}} Реакция', onclick: () => reactionPicker(tools, channel, msg) },
+        { label: '{{ic:reply}} Ответить', onclick: () => setReply(msg) },
+        msg.text ? { label: '{{ic:copy}} Скопировать текст', onclick: () => copy(msg.text) } : null,
+        mine && msg.text ? { label: '{{ic:pencil}} Изменить', onclick: () => startEdit(node, msg, channel) } : null,
+        canDelete ? { label: msg.pinned ? '{{ic:unpin}} Открепить' : '{{ic:pin}} Закрепить', onclick: () => S.conn.send({ t: 'pin', channel, id: msg.id, on: !msg.pinned }) } : null,
+        !mine && mem ? { label: '{{ic:mail}} Написать лично', onclick: () => openDm(mem.uid) } : null,
+        canDelete ? { label: '{{ic:trash}} Удалить', danger: true, onclick: () => deleteMsg(msg, channel) } : null,
       ]) },
     cont ? h('span', { class: 'cont-time' }, new Date(shown.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })) : avatarEl(who),
     h('div', { class: 'body' },
       shown.reply ? h('div', { class: 'reply-ref', onclick: () => { const t = msgNode(shown.reply.id); if (t) { t.scrollIntoView({ block: 'center', behavior: 'smooth' }); t.classList.add('flash'); setTimeout(() => t.classList.remove('flash'), 1200); } } },
-        h('span', { class: 'rr-arrow' }, '↱'), h('b', null, shown.reply.name), ' ', plainText(shown.reply.text)) : null,
-      cont ? null : h('div', { class: 'head' }, author, h('span', { class: 'time' }, fmtTime(shown.ts)), msg.pinned ? h('span', { class: 'pin-mark', title: 'Закреплено' }, '📌') : null),
-      cont && msg.pinned ? h('span', { class: 'pin-mark', title: 'Закреплено' }, '📌') : null,
+        h('span', { class: 'rr-arrow' }, '{{ic:reply-to}}'), h('b', null, shown.reply.name), ' ', plainText(shown.reply.text)) : null,
+      cont ? null : h('div', { class: 'head' }, author, h('span', { class: 'time' }, fmtTime(shown.ts)), msg.pinned ? h('span', { class: 'pin-mark', title: 'Закреплено' }, '{{ic:pin}}') : null),
+      cont && msg.pinned ? h('span', { class: 'pin-mark', title: 'Закреплено' }, '{{ic:pin}}') : null,
       shown.text ? richText(shown.text, shown.emojis) : null,
       shown.edited && !shown.text ? h('span', { class: 'edited', title: 'Изменено ' + fmtTime(shown.edited) }, '(изменено)') : null,
       linkPreviews(shown.text), media, attachmentsNode(shown.files), reactionsRow(msg, channel)),
@@ -1421,18 +1421,18 @@
         if (pop) { closePop(); return; }
         pop = stickerPopup(ch.id, field, closePop);
         composer.append(pop);
-      } }, '😀'),
+      } }, '{{ic:smile}}'),
       sendBtn);
-    const search = h('input', { class: 'input head-search', placeholder: '🔍 Поиск', title: 'Поиск по каналу (Ctrl+F)' });
+    const search = h('input', { class: 'input head-search', placeholder: 'Поиск', title: 'Поиск по каналу (Ctrl+F)' });
     search.addEventListener('input', () => searchPopup(search, ch.id));
     search.addEventListener('keydown', (e) => { if (e.key === 'Escape') { search.value = ''; searchPopup(search, ch.id); field.focus(); } });
     const pinCount = (S.conn.pins.get(ch.id) || []).length;
     const head = h('div', { class: 'main-head' }, h('span', { class: 'title' }, '# ' + ch.name),
       ch.nsfw ? h('span', { class: 'nsfw-pill' }, '18+') : null,
       ch.topic ? h('span', { class: 'topic' }, ch.topic) : null, h('span', { class: 'spacer' }),
-      h('button', { class: 'icon-btn pin-btn', title: 'Закреплённые сообщения', onclick: (e) => pinsPopup(e.currentTarget, ch.id) }, '📌', h('span', { id: 'pin-count' }, pinCount || '')),
-      search,
-      h('button', { class: 'icon-btn' + (S.settings.showMembers ? ' on' : ''), title: 'Список участников', onclick: () => { S.settings.showMembers = !S.settings.showMembers; saveSettings(); renderRight(); renderMain(); } }, '👥'));
+      h('button', { class: 'icon-btn pin-btn', title: 'Закреплённые сообщения', onclick: (e) => pinsPopup(e.currentTarget, ch.id) }, '{{ic:pin}}', h('span', { id: 'pin-count' }, pinCount || '')),
+      h('div', { class: 'search-wrap' }, C.icon('search'), search),
+      h('button', { class: 'icon-btn' + (S.settings.showMembers ? ' on' : ''), title: 'Список участников', onclick: () => { S.settings.showMembers = !S.settings.showMembers; saveSettings(); renderRight(); renderMain(); } }, '{{ic:users}}'));
     m.replaceChildren(...[head, messages, h('div', { class: 'typing', id: 'typing' }), h('div', { class: 'reply-bar', id: 'reply-bar' }), att ? att.strip : null, composer].filter(Boolean));
     for (const msg of list) appendMessage(msg, false);
     messages.scrollTop = messages.scrollHeight;
@@ -1469,9 +1469,9 @@
       const can = p.uid === S.conn.meId || S.conn.owner;
       return h('div', { class: 'hp-item', onclick: () => jumpTo(p.id) },
         h('div', { class: 'hp-head' }, h('b', null, p.name), h('span', { class: 'time' }, fmtTime(p.ts)),
-          can ? h('button', { class: 'icon-btn', title: 'Открепить', onclick: (e) => { e.stopPropagation(); S.conn.send({ t: 'pin', channel, id: p.id, on: false }); e.currentTarget.closest('.hp-item').remove(); } }, '✕') : null),
+          can ? h('button', { class: 'icon-btn', title: 'Открепить', onclick: (e) => { e.stopPropagation(); S.conn.send({ t: 'pin', channel, id: p.id, on: false }); e.currentTarget.closest('.hp-item').remove(); } }, '{{ic:close}}') : null),
         p.text ? richText(p.text, p.emojis) : p.sticker ? C.media(p.sticker, 'sticker') : null);
-    }), 'Пока ничего не закреплено. Наведите на сообщение и нажмите 📌.');
+    }), 'Пока ничего не закреплено. Наведите на сообщение и нажмите {{ic:pin}}.');
   }
 
   function searchPopup(input, channel) {
@@ -1492,8 +1492,8 @@
     const media = msg.sticker ? C.media(msg.sticker, 'sticker') : null;
     if (media) media.dataset.url = msg.sticker;
     return h('div', { class: 'msg' + (mine ? ' mine' : '') + (cont ? ' cont' : ''), dataset: { id: msg.id, uid: msg.uid, ts: String(msg.ts) },
-      oncontextmenu: (e) => contextMenu(e, [msg.text ? { label: '📋 Скопировать текст', onclick: () => copy(msg.text) } : null,
-        { label: '🗑 Удалить у себя', danger: true, onclick: () => { const conv = S.dms[S.view.peer]; if (conv) { conv.list = conv.list.filter((x) => x.id !== msg.id); saveDms(); renderMain(); } } }]) },
+      oncontextmenu: (e) => contextMenu(e, [msg.text ? { label: '{{ic:copy}} Скопировать текст', onclick: () => copy(msg.text) } : null,
+        { label: '{{ic:trash}} Удалить у себя', danger: true, onclick: () => { const conv = S.dms[S.view.peer]; if (conv) { conv.list = conv.list.filter((x) => x.id !== msg.id); saveDms(); renderMain(); } } }]) },
     cont ? h('span', { class: 'cont-time' }, new Date(msg.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })) : avatarEl(who),
     h('div', { class: 'body' }, cont ? null : h('div', { class: 'head' }, nameEl(who, { cls: 'author' }), h('span', { class: 'time' }, fmtTime(msg.ts))),
       msg.text ? richText(msg.text, msg.emojis) : null, linkPreviews(msg.text), media, attachmentsNode(msg.files)));
@@ -1545,11 +1545,11 @@
         if (pop) { closePop(); return; }
         pop = stickerPopup(null, field, closePop, (url) => sendDm({ sticker: url }));
         composer.append(pop);
-      } }, '😀'),
+      } }, '{{ic:smile}}'),
       h('button', { class: 'btn primary', disabled: !mem, onclick: submit }, 'Отправить'));
     const head = h('div', { class: 'main-head' }, mem ? avatarEl(mem, { status: mem.status }) : null, h('span', { class: 'title' }, '@ ' + name),
       h('span', { class: 'topic' }, mem ? statusLabel(mem) : 'не в комнате'), h('span', { class: 'spacer' }),
-      mem ? h('button', { class: 'icon-btn', title: 'Профиль', onclick: () => openProfileCard(mem) }, '👤') : null);
+      mem ? h('button', { class: 'icon-btn', title: 'Профиль', onclick: () => openProfileCard(mem) }, '{{ic:user}}') : null);
     m.replaceChildren(...[head, messages, att ? att.strip : null, composer].filter(Boolean));
     for (const msg of conv.list) appendDm(msg, false);
     messages.scrollTop = messages.scrollHeight;
@@ -1587,7 +1587,7 @@
         h('div', { class: 'row' },
           h('div', { class: 'chips grow' }, [['sticker', 'Стикеры'], ['emoji', 'Эмодзи']].map(([id, label]) =>
             h('div', { class: 'chip' + (type === id ? ' on' : ''), onclick: () => { S.pickerTab = id; draw(); } }, label))),
-          h('button', { class: 'icon-btn', title: 'Управление и экспорт', onclick: () => { close(); openSettings('stickers'); } }, '⚙')),
+          h('button', { class: 'icon-btn', title: 'Управление и экспорт', onclick: () => { close(); openSettings('stickers'); } }, '{{ic:gear}}')),
         h('div', { class: 'chips', style: { margin: '10px 0 6px' } }, lib.categories.map((c) =>
           h('div', { class: 'chip' + (c.id === cat.id ? ' on' : ''), onclick: () => { S.pickerCat = c.id; draw(); } }, c.name))),
         h('div', { class: 'sticker-grid' + (type === 'emoji' ? ' emoji-grid' : '') }, items.length ? items.map((item) =>
@@ -1596,7 +1596,7 @@
             else if (onSticker) { onSticker(item.url); close(); }
             else { const out = { t: 'msg', channel, sticker: item.url }; if (S.replyTo) out.reply = S.replyTo.id; S.conn.send(out); setReply(null); close(); }
           } }, C.media(item.url, ''),
-          h('button', { class: 'x', title: 'Удалить', onclick: (ev) => { ev.stopPropagation(); lib.removeItem(cat.id, item.id); draw(); } }, '✕'))) :
+          h('button', { class: 'x', title: 'Удалить', onclick: (ev) => { ev.stopPropagation(); lib.removeItem(cat.id, item.id); draw(); } }, '{{ic:close}}'))) :
           [h('div', { class: 'hint', style: { gridColumn: '1 / -1' } }, 'В этой категории пока пусто. Добавьте ссылку ниже.')]),
         h('div', { class: 'row', style: { marginTop: '10px' } }, name, url, h('button', { class: 'btn', onclick: add }, '+')), hint);
     };
@@ -1618,7 +1618,7 @@
     const v = S.voice;
     const here = v.channel === ch.id;
     const inside = (S.conn.voice[ch.id] || []).map((sid) => S.conn.members.get(sid)).filter(Boolean);
-    const head = h('div', { class: 'main-head' }, h('span', { class: 'title' }, '🔊 ' + ch.name), ch.topic ? h('span', { class: 'topic' }, ch.topic) : null);
+    const head = h('div', { class: 'main-head' }, h('span', { class: 'title' }, '{{ic:speaker}} ' + ch.name), ch.topic ? h('span', { class: 'topic' }, ch.topic) : null);
     if (!here) {
       setWatching(null);
       m.replaceChildren(head, h('div', { class: 'voice-stage' },
@@ -1649,10 +1649,10 @@
       let face = avatarEl(u);
       if (cam) { face = h('video', { autoplay: true, playsInline: true, muted: true, class: u.sid === S.conn.sid ? 'mirror' : '' }); face.srcObject = cam; }
       const tile = h('div', { class: 'tile' + (cam ? ' cam' : ''), dataset: { sid: u.sid } }, face,
-        h('div', { class: 'label' }, u.name + (u.sid === S.conn.sid ? ' (вы)' : ''), u.muted ? ' 🔇' : '', u.deaf ? ' 🙉' : ''),
+        h('div', { class: 'label' }, u.name + (u.sid === S.conn.sid ? ' (вы)' : ''), u.muted ? ' {{ic:mic-off}}' : '', u.deaf ? ' {{ic:headphones-off}}' : ''),
         u.sid !== S.conn.sid ? h('span', { class: 'net' }) : null);
       if (u.sid !== S.conn.sid) {
-        tile.addEventListener('contextmenu', (e) => contextMenu(e, [{ label: '🔊 Громкость…', onclick: () => volumeDialog(u) }, { label: '👤 Профиль', onclick: () => openProfileCard(u) }]));
+        tile.addEventListener('contextmenu', (e) => contextMenu(e, [{ label: '{{ic:speaker}} Громкость…', onclick: () => volumeDialog(u) }, { label: '{{ic:user}} Профиль', onclick: () => openProfileCard(u) }]));
       }
       for (const extra of C.plugins.collect('voiceTile', { sid: u.sid, mine: u.sid === S.conn.sid, kind: 'user' })) tile.append(extra);
       tiles.append(tile);
@@ -1660,14 +1660,14 @@
     const sharing = !!v.screenStream;
     m.replaceChildren(head, h('div', { class: 'voice-stage' }, tiles),
       h('div', { class: 'voice-controls' },
-        h('button', { class: 'btn' + (v.muted ? ' danger' : ''), onclick: () => v.setMuted(!v.muted) }, v.muted ? '🔇 Включить микрофон' : '🎙 Микрофон'),
-        h('button', { class: 'btn' + (v.deafened ? ' danger' : ''), onclick: () => v.setDeafened(!v.deafened) }, v.deafened ? '🙉 Включить звук' : '🎧 Звук'),
+        h('button', { class: 'btn' + (v.muted ? ' danger' : ''), onclick: () => v.setMuted(!v.muted) }, v.muted ? '{{ic:mic-off}} Включить микрофон' : '{{ic:mic}} Микрофон'),
+        h('button', { class: 'btn' + (v.deafened ? ' danger' : ''), onclick: () => v.setDeafened(!v.deafened) }, v.deafened ? '{{ic:headphones-off}} Включить звук' : '{{ic:headphones}} Звук'),
         h('button', { class: 'btn' + (v.cameraStream ? ' primary' : ''), onclick: async () => {
           try { if (v.cameraStream) v.stopCamera(); else await v.startCamera(); } catch (e) { C.toast('Камера не включилась: ' + e.message); }
-        } }, v.cameraStream ? '📷 Стоп камера' : '📷 Камера'),
-        h('button', { class: 'btn' + (sharing ? ' primary' : ''), title: sharing ? 'Остановить показ экрана' : 'Показать экран', onclick: () => (sharing ? v.stopScreen() : pickScreen()) }, sharing ? '⏹ Стоп экран' : '🖥 Экран'),
+        } }, v.cameraStream ? '{{ic:camera}} Стоп камера' : '{{ic:camera}} Камера'),
+        h('button', { class: 'btn' + (sharing ? ' primary' : ''), title: sharing ? 'Остановить показ экрана' : 'Показать экран', onclick: () => (sharing ? v.stopScreen() : pickScreen()) }, sharing ? '{{ic:stop}} Стоп экран' : '{{ic:screen}} Экран'),
         ...C.plugins.collect('voiceControls', { channel: ch }),
-        h('button', { class: 'btn danger', onclick: () => v.leave() }, '📞 Выйти')));
+        h('button', { class: 'btn danger', onclick: () => v.leave() }, '{{ic:phone-down}} Выйти')));
     updateSpeaking();
     updateNetStats();
   }
@@ -1735,17 +1735,17 @@
       const item = (icon, label, onclick, chevron) => h('div', { class: 'sm-item', onclick }, h('span', { class: 'ic' }, icon), h('span', { class: 'grow' }, label), chevron ? h('span', { class: 'chev' }, chevron) : null);
       const cur = STATUSES.find((x) => x[0] === S.status) || STATUSES[0];
       const opts = statusOpen ? h('div', { class: 'sm-sub' }, STATUSES.map(([id, ic, label]) =>
-        h('div', { class: 'sm-item' + (S.status === id ? ' on' : ''), onclick: () => { setStatus(id); draw(); } }, h('span', { class: 'ic' }, ic), h('span', { class: 'grow' }, label), S.status === id ? h('span', null, '✓') : null))) : null;
+        h('div', { class: 'sm-item' + (S.status === id ? ' on' : ''), onclick: () => { setStatus(id); draw(); } }, h('span', { class: 'ic' }, ic), h('span', { class: 'grow' }, label), S.status === id ? h('span', null, '{{ic:check}}') : null))) : null;
       const card = h('div', null, banner,
         h('div', { class: 'sm-head' }, avatarEl(me, { status: me.status, cls: 'lg' }), bubble),
         h('div', { class: 'sm-who' }, h('div', { class: 'sm-name' }, nameEl(me)),
           h('div', { class: 'hint' }, [me.pronouns, S.activity ? (S.activity.kind === 'music' ? 'Слушает: ' : 'Играет: ') + S.activity.name : ''].filter(Boolean).join(' · ') || cur[2])),
         h('div', { class: 'sm-list' },
-          item('✎', 'Редактировать профиль', () => { closeSelfMenu(); openSettings('profile'); }),
-          item(cur[1], cur[2], () => { statusOpen = !statusOpen; draw(); }, statusOpen ? '⌄' : '›'), opts),
-        h('div', { class: 'sm-list' }, item('🎨', 'Внешний вид', () => { closeSelfMenu(); openSettings('look'); }),
-          item('⚙', 'Настройки', () => { closeSelfMenu(); openSettings(); }),
-          item('🔔', 'Уведомления', () => { closeSelfMenu(); openSettings('notify'); })));
+          item('{{ic:pencil}}', 'Редактировать профиль', () => { closeSelfMenu(); openSettings('profile'); }),
+          item(cur[1], cur[2], () => { statusOpen = !statusOpen; draw(); }, statusOpen ? '{{ic:chevron-down}}' : '{{ic:chevron-right}}'), opts),
+        h('div', { class: 'sm-list' }, item('{{ic:palette}}', 'Внешний вид', () => { closeSelfMenu(); openSettings('look'); }),
+          item('{{ic:gear}}', 'Настройки', () => { closeSelfMenu(); openSettings(); }),
+          item('{{ic:bell}}', 'Уведомления', () => { closeSelfMenu(); openSettings('notify'); })));
       const cf = me.cardFrame ? C.media(me.cardFrame, 'card-frame') : null;
       if (cf) cf.addEventListener('error', () => cf.remove());
       node.replaceChildren(...[card, cf].filter(Boolean));
@@ -1779,13 +1779,13 @@
     const links = (u.links || []).filter((l) => l && (l.label || l.url));
     const sinceLine = u.since ? 'В комнате с ' + new Date(u.since).toLocaleDateString('ru-RU') : '';
     const body = h('div', { class: 'profile-body' }, avatarEl(u, { status: u.status, cls: 'lg' }),
-      badges.length || u.host ? h('div', { class: 'badges' }, u.host ? h('span', { class: 'bdg', title: 'Хозяин комнаты' }, '👑') : null,
+      badges.length || u.host ? h('div', { class: 'badges' }, u.host ? h('span', { class: 'bdg', title: 'Хозяин комнаты' }, '{{ic:crown}}') : null,
         badges.map((b) => h('span', { class: 'bdg', title: BADGES[b][1] }, BADGES[b][0]))) : null,
       title,
       u.pronouns ? h('div', { class: 'pronouns' }, u.pronouns) : null,
       h('div', { class: 'hint' }, u.custom ? u.custom : statusLabel(u)),
       u.bio ? h('div', { class: 'bio' }, inline(u.bio, null, { emoji: 0 })) : null,
-      links.length ? h('div', { class: 'links' }, links.map((l) => h('span', { class: 'plink', title: l.url ? 'Нажмите, чтобы скопировать' : '', onclick: () => l.url && copy(l.url) }, '🔗 ', l.label || l.url))) : null,
+      links.length ? h('div', { class: 'links' }, links.map((l) => h('span', { class: 'plink', title: l.url ? 'Нажмите, чтобы скопировать' : '', onclick: () => l.url && copy(l.url) }, '{{ic:link}} ', l.label || l.url))) : null,
       u.activity ? h('div', { class: 'contact-card act-card', style: { marginTop: '14px' } }, u.activity.image ? C.media(u.activity.image, 'act-img') : null,
         h('div', { class: 'grow' }, h('div', { class: 'game' }, u.activity.kind === 'music' ? 'Слушает' : 'Играет'), h('b', null, u.activity.name),
           h('div', { class: 'game' }, [u.activity.details, u.activity.state].filter(Boolean).join(' · ')), u.activity.kind !== 'music' && u.activity.startedAt ? h('div', { class: 'game' }, C.fmtElapsed(u.activity.startedAt)) : null)) : null,
@@ -1813,8 +1813,8 @@
       const blocked = S.blocked.has(u.uid);
       card.append(h('div', { class: 'profile-body', style: { marginTop: '0', paddingBottom: '16px', position: 'relative', zIndex: 6 } },
         h('div', { class: 'row wrap' },
-          h('button', { class: 'btn primary', onclick: () => { dlg.close(); openDm(u.uid); } }, '✉ Написать'),
-          h('button', { class: 'btn', onclick: () => { dlg.close(); toggleBlock(u.uid, u.name); } }, blocked ? 'Разблокировать' : '🚫 Скрыть у себя'),
+          h('button', { class: 'btn primary', onclick: () => { dlg.close(); openDm(u.uid); } }, '{{ic:mail}} Написать'),
+          h('button', { class: 'btn', onclick: () => { dlg.close(); toggleBlock(u.uid, u.name); } }, blocked ? 'Разблокировать' : '{{ic:block}} Скрыть у себя'),
           // Владелец комнаты может исключить или заблокировать участника на сервере.
           S.conn.owner ? h('button', { class: 'btn', onclick: () => { S.conn.send({ t: 'kick', sid: u.sid }); dlg.close(); } }, 'Выгнать') : null,
           S.conn.owner ? h('button', { class: 'btn danger', onclick: () => {
@@ -1834,7 +1834,7 @@
     return h('div', { style: { margin: '12px 0' } }, h('div', { class: 'row' }, h('div', { class: 'grow' }, label), sw), hint ? h('div', { class: 'hint' }, hint) : null);
   }
   function select(options, value, onChange) {
-    const s = h('select', { class: 'input' }, options.map(([v, l]) => h('option', { value: v, selected: String(v) === String(value) }, l)));
+    const s = h('select', { class: 'input' }, options.map(([v, l]) => h('option', { value: v, selected: String(v) === String(value) }, C.stripIcons(l))));
     s.addEventListener('change', () => onChange(s.value));
     return s;
   }
@@ -2183,7 +2183,7 @@
     return h('div', null, h('h2', null, 'Внешний вид'),
       h('label', { class: 'lbl' }, 'Дизайн'), designCards,
       h('div', { class: 'row wrap', style: { marginTop: '6px' } },
-        h('div', { class: 'grow' }, h('label', { class: 'lbl' }, 'Режим'), chips([['dark', '🌙 Тёмный'], ['light', '☀ Светлый'], ['auto', '🖥 Как в системе']], s.mode, (v) => set('mode', v)))),
+        h('div', { class: 'grow' }, h('label', { class: 'lbl' }, 'Режим'), chips([['dark', '{{ic:moon}} Тёмный'], ['light', '{{ic:sun}} Светлый'], ['auto', '{{ic:screen}} Как в системе']], s.mode, (v) => set('mode', v)))),
       h('label', { class: 'lbl' }, 'Цвет акцента'),
       h('div', { class: 'row wrap' }, color, ...ACCENTS.map((c) => h('button', { class: 'swatch' + (c === s.accent ? ' on' : ''), style: { background: c }, title: c,
         onclick: () => { s.accent = c; saveSettings(); applyLook(); redraw(); } }))),
@@ -2308,7 +2308,7 @@
     const { rows, toEnable } = plan;
     const seen = new Set();
     const uniq = rows.filter((r) => { const k = r.name; if (seen.has(k)) return false; seen.add(k); return true; });
-    const icon = (t) => (t.optional ? '☑' : t.plugin ? '✅' : t.native ? '⭐' : '➖');
+    const icon = (t) => (t.optional ? '{{ic:check-box}}' : t.plugin ? '{{ic:check-circle}}' : t.native ? '{{ic:star}}' : '{{ic:minus}}');
     const pname = (id) => (C.plugins.plugins.find((p) => p.info.id === id) || { info: { name: id } }).info.name;
     const label = (t) => (t.optional ? `есть плагин «${pname(t.plugin)}», но сам не включается: он прячет чужое оформление профилей` : t.plugin ? `плагин «${pname(t.plugin)}»` : t.native ? 'уже встроено: ' + t.native : t.none);
     const themes = sources.flatMap((s) => s.themes || []);
@@ -2342,7 +2342,7 @@
           h('div', { class: 'sub' }, p.info.description + (p.info.author ? ' — ' + p.info.author : '')),
           p.info.origin ? h('div', { class: 'origin' }, 'по мотивам: ' + p.info.origin) : null,
           p.error ? h('div', { class: 'err' }, 'Ошибка: ' + p.error) : null),
-        hasSettings ? h('button', { class: 'icon-btn' + (open ? ' on' : ''), title: 'Настройки плагина', disabled: !p.enabled, onclick: () => { S.pluginOpen = open ? null : p.info.id; redraw(); } }, '⚙') : null, sw),
+        hasSettings ? h('button', { class: 'icon-btn' + (open ? ' on' : ''), title: 'Настройки плагина', disabled: !p.enabled, onclick: () => { S.pluginOpen = open ? null : p.info.id; redraw(); } }, '{{ic:gear}}') : null, sw),
         form);
     };
     const builtins = C.plugins.plugins.filter((p) => p.builtin && match(p));
@@ -2351,7 +2351,7 @@
     const own = C.plugins.plugins.filter((p) => !p.builtin && match(p));
     return h('div', null, h('h2', null, 'Плагины'),
       h('div', { class: 'row wrap', style: { marginBottom: '12px' } },
-        h('button', { class: 'btn primary', onclick: () => migrateDialog(redraw) }, '⇪ Перенести из BetterDiscord и Vencord'),
+        h('button', { class: 'btn primary', onclick: () => migrateDialog(redraw) }, '{{ic:share}} Перенести из BetterDiscord и Vencord'),
         h('div', { class: 'grow plugin-search' }, search)),
       h('div', { class: 'hint' }, `Встроенных: ${C.plugins.plugins.filter((p) => p.builtin).length}, включено: ${C.plugins.plugins.filter((p) => p.enabled).length}. Встроенные — часть приложения, их код открыт в src/builtin.`),
       ...[...groups].map(([name, list]) => h('div', null, h('label', { class: 'lbl' }, name), ...list.map(card))),
@@ -2539,15 +2539,15 @@
       topic.addEventListener('change', () => send({ op: 'edit', id: c.id, topic: topic.value }));
       const nsfw = h('input', { type: 'checkbox', class: 'switch', checked: !!c.nsfw, title: '18+' });
       nsfw.addEventListener('change', () => send({ op: 'edit', id: c.id, nsfw: nsfw.checked }));
-      return h('div', { class: 'ch-row' }, h('span', { class: 'ch-ic' }, c.type === 'voice' ? '🔊' : '#'), h('div', { class: 'grow ch-fields' }, h('div', { class: 'row' }, nm, cat), topic),
+      return h('div', { class: 'ch-row' }, h('span', { class: 'ch-ic' }, c.type === 'voice' ? '{{ic:speaker}}' : '#'), h('div', { class: 'grow ch-fields' }, h('div', { class: 'row' }, nm, cat), topic),
         c.type === 'text' ? h('label', { class: 'ch-nsfw', title: 'Канал 18+' }, '18+', nsfw) : null,
-        h('button', { class: 'icon-btn', title: 'Выше', onclick: () => send({ op: 'move', id: c.id, dir: -1 }) }, '↑'),
-        h('button', { class: 'icon-btn', title: 'Ниже', onclick: () => send({ op: 'move', id: c.id, dir: 1 }) }, '↓'),
-        h('button', { class: 'icon-btn', title: 'Удалить', onclick: () => { if (confirm(`Удалить канал «${c.name}»${c.type === 'text' ? ' вместе с историей' : ''}?`)) send({ op: 'delete', id: c.id }); } }, '🗑'));
+        h('button', { class: 'icon-btn', title: 'Выше', onclick: () => send({ op: 'move', id: c.id, dir: -1 }) }, '{{ic:arrow-up}}'),
+        h('button', { class: 'icon-btn', title: 'Ниже', onclick: () => send({ op: 'move', id: c.id, dir: 1 }) }, '{{ic:arrow-down}}'),
+        h('button', { class: 'icon-btn', title: 'Удалить', onclick: () => { if (confirm(`Удалить канал «${c.name}»${c.type === 'text' ? ' вместе с историей' : ''}?`)) send({ op: 'delete', id: c.id }); } }, '{{ic:trash}}'));
     };
     const newName = h('input', { class: 'input', placeholder: 'Название канала', maxLength: 32 });
     const newCat = h('input', { class: 'input', placeholder: 'Категория', maxLength: 32 });
-    const newType = select([['text', '# Текстовый'], ['voice', '🔊 Голосовой']], 'text', () => {});
+    const newType = select([['text', '# Текстовый'], ['voice', '{{ic:speaker}} Голосовой']], 'text', () => {});
     return h('div', null, h('h2', null, 'Комната'),
       h('div', { class: 'hint' }, 'Название, баннер и каналы видят все участники. Менять их можете только вы.'),
       field('Название', name), urlField('Баннер (ссылка)', 'banner', draft, 'Картинка над списком каналов. Лучше широкая, например 600×240.', update),
@@ -2621,8 +2621,8 @@
       parts.push(
         h('label', { class: 'lbl' }, 'Выбранная категория'),
         h('div', { class: 'row wrap' }, h('div', { class: 'grow' }, rename),
-          h('button', { class: 'icon-btn', title: 'Выше', onclick: () => attempt(() => lib.moveCategory(cat.id, -1)) }, '↑'),
-          h('button', { class: 'icon-btn', title: 'Ниже', onclick: () => attempt(() => lib.moveCategory(cat.id, 1)) }, '↓'),
+          h('button', { class: 'icon-btn', title: 'Выше', onclick: () => attempt(() => lib.moveCategory(cat.id, -1)) }, '{{ic:arrow-up}}'),
+          h('button', { class: 'icon-btn', title: 'Ниже', onclick: () => attempt(() => lib.moveCategory(cat.id, 1)) }, '{{ic:arrow-down}}'),
           h('button', { class: 'btn', onclick: () => save([{ name: cat.name, text: json(lib.exportCategory(cat.id)) }], (r) => `Сохранено в ${r.where}`) }, 'Экспорт категории'),
           h('button', { class: 'btn danger', onclick: () => { if (confirm(`Удалить категорию «${cat.name}» вместе с содержимым?`)) attempt(() => lib.deleteCategory(cat.id)); } }, 'Удалить')),
         h('label', { class: 'lbl' }, 'Добавить по ссылке'),
@@ -2634,17 +2634,17 @@
             h('div', { class: 'nm2', title: item.url }, (item.type === 'emoji' ? ':' + item.name + ':' : item.name) || '(без имени)'),
             h('div', { class: 'row' },
               others.length ? select([['', 'Перенести…'], ...others.map((c) => [c.id, c.name])], '', (to) => { if (to) attempt(() => lib.moveItem(cat.id, item.id, to)); }) : null,
-              h('button', { class: 'icon-btn', title: 'Удалить', onclick: () => attempt(() => lib.removeItem(cat.id, item.id)) }, '✕')))) :
+              h('button', { class: 'icon-btn', title: 'Удалить', onclick: () => attempt(() => lib.removeItem(cat.id, item.id)) }, '{{ic:close}}')))) :
           [h('div', { class: 'hint' }, 'Пока пусто. Добавьте стикер или эмодзи по ссылке.')]));
     }
     return h('div', null, ...parts);
   }
 
   function openSettings(start = 'profile') {
-    const sections = [...(S.conn && S.conn.owner ? [['room', '🏠 Комната', sectionRoom]] : []), ['profile', '👤 Мой профиль', sectionProfile], ['look', '🎨 Внешний вид', sectionLook],
-      ['voice', '🎙 Голос и видео', sectionVoice], ['stream', '🖥 Стриминг', sectionStream], ['stickers', '😀 Стикеры и эмодзи', sectionStickers], ['plugins', '🧩 Плагины', sectionPlugins],
-      ['activity', '🎮 Игры и активность', sectionActivity], ['notify', '🔔 Уведомления', sectionNotify], ['network', '📡 Сеть', sectionNetwork], ['startup', '🚀 Запуск и фон', sectionStartup],
-      ['security', '🔒 Безопасность', sectionSecurity], ['updates', '⬆ Обновления', sectionUpdates], ['backup', '💾 Резервная копия', sectionBackup]];
+    const sections = [...(S.conn && S.conn.owner ? [['room', '{{ic:home}} Комната', sectionRoom]] : []), ['profile', '{{ic:user}} Мой профиль', sectionProfile], ['look', '{{ic:palette}} Внешний вид', sectionLook],
+      ['voice', '{{ic:mic}} Голос и видео', sectionVoice], ['stream', '{{ic:screen}} Стриминг', sectionStream], ['stickers', '{{ic:smile}} Стикеры и эмодзи', sectionStickers], ['plugins', '{{ic:puzzle}} Плагины', sectionPlugins],
+      ['activity', '{{ic:gamepad}} Игры и активность', sectionActivity], ['notify', '{{ic:bell}} Уведомления', sectionNotify], ['network', '{{ic:antenna}} Сеть', sectionNetwork], ['startup', '{{ic:rocket}} Запуск и фон', sectionStartup],
+      ['security', '{{ic:lock}} Безопасность', sectionSecurity], ['updates', '{{ic:arrow-up}} Обновления', sectionUpdates], ['backup', '{{ic:save}} Резервная копия', sectionBackup]];
     let current = sections.find((s) => s[0] === start) ? start : 'profile';
     const nav = h('div', { class: 'settings-nav' });
     const body = h('div', { class: 'settings-body' });
@@ -2702,7 +2702,7 @@
     native.onPresence((a) => { S.detected = a; updateActivity(); });
     native.onTls((ev) => {
       if (ev.kind === 'mismatch') {
-        modal(h('div', { class: 'modal-body' }, h('h3', { style: { marginTop: 0, color: 'var(--warn)' } }, '⚠ Сертификат сервера изменился'),
+        modal(h('div', { class: 'modal-body' }, h('h3', { style: { marginTop: 0, color: 'var(--warn)' } }, '{{ic:warn}} Сертификат сервера изменился'),
           h('div', null, `Сервер ${ev.host} раньше представлялся по-другому. Соединение заблокировано: это может быть подмена сервера.`),
           h('label', { class: 'lbl' }, 'Запомненный отпечаток'), h('div', { class: 'hint', style: { wordBreak: 'break-all' } }, ev.expected),
           h('label', { class: 'lbl' }, 'Сейчас'), h('div', { class: 'hint', style: { wordBreak: 'break-all' } }, ev.fingerprint),

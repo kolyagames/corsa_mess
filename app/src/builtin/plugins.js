@@ -42,14 +42,14 @@
 
   def({
     id: 'invisible-typing', name: 'Невидимый набор', category: 'Чат', origin: 'BetterDiscord: InvisibleTyping', defaultOn: false,
-    description: 'Другие не видят «печатает…», пока вы пишете. Кнопка ✍ рядом с полем ввода включает и выключает.',
+    description: 'Другие не видят «печатает…», пока вы пишете. Кнопка {{ic:pencil}} рядом с полем ввода включает и выключает.',
     start(api) {
       const on = () => api.storage.get('on', true);
       api.intercept('typing', (v) => (on() ? false : v));
       api.decorate('composer', () => {
         const b = h('button', { class: 'btn' + (on() ? ' primary' : ''), title: on() ? 'Невидимый набор включён' : 'Невидимый набор выключен', onclick: () => {
           api.storage.set('on', !on()); b.className = 'btn' + (on() ? ' primary' : ''); b.title = on() ? 'Невидимый набор включён' : 'Невидимый набор выключен';
-        } }, '✍');
+        } }, '{{ic:pencil}}');
         return b;
       });
     },
@@ -109,7 +109,7 @@
 
   def({
     id: 'expression-cloner', name: 'Копировать эмодзи и стикеры', category: 'Чат', origin: 'Vencord: ExpressionCloner', defaultOn: true,
-    description: 'Кнопка 📥 у сообщения со стикером или своими эмодзи: сохранить их в свою библиотеку.',
+    description: 'Кнопка {{ic:download}} у сообщения со стикером или своими эмодзи: сохранить их в свою библиотеку.',
     start(api) {
       api.decorate('msgTools', ({ msg }) => {
         const emojis = Object.entries(msg.emojis || {});
@@ -130,7 +130,7 @@
               dlg.close();
               api.toast(ok ? `Сохранено: ${ok}` : 'Уже есть в библиотеке');
             } }, 'Сохранить'))));
-        } }, '📥');
+        } }, '{{ic:download}}');
       });
     },
   });
@@ -158,7 +158,7 @@
 
   def({
     id: 'voice-messages', name: 'Голосовые сообщения', category: 'Чат', origin: 'Vencord: VoiceMessages', defaultOn: true,
-    description: 'Кнопка 🎤 у поля ввода: нажмите, говорите, нажмите ещё раз — отправится. Esc отменяет. До 2 минут, в каналах и в личных.',
+    description: 'Кнопка {{ic:mic}} у поля ввода: нажмите, говорите, нажмите ещё раз — отправится. Esc отменяет. До 2 минут, в каналах и в личных.',
     settings: [
       { key: 'echo', type: 'switch', label: 'Подавление эха', default: true },
       { key: 'noise', type: 'switch', label: 'Шумоподавление', default: true },
@@ -174,17 +174,17 @@
         let send = true;
         const state = { stop(doSend) { send = doSend; if (mr.state !== 'inactive') mr.stop(); } };
         const placeholder = ctx.field.placeholder;
-        ctx.field.placeholder = 'Идёт запись… 🎤 — отправить, Esc — отменить';
+        ctx.field.placeholder = 'Идёт запись… нажмите на микрофон, чтобы отправить, Esc — отменить';
         const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); state.stop(false); } };
         document.addEventListener('keydown', onKey, true);
-        const timer = setInterval(() => { const s = (Date.now() - t0) / 1000; b.textContent = '⏹ ' + clock(s); if (s >= 120) state.stop(true); }, 250);
+        const timer = setInterval(() => { const s = (Date.now() - t0) / 1000; b.replaceChildren(C.icon('stop'), ' ' + clock(s)); if (s >= 120) state.stop(true); }, 250);
         b.classList.add('recording');
         mr.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
         mr.onstop = async () => {
           clearInterval(timer);
           document.removeEventListener('keydown', onKey, true);
           stream.getTracks().forEach((t) => t.stop());
-          b.classList.remove('recording'); b.textContent = '🎤';
+          b.classList.remove('recording'); b.replaceChildren(C.icon('mic'));
           ctx.field.placeholder = placeholder;
           rec = null;
           const dur = (Date.now() - t0) / 1000;
@@ -201,7 +201,7 @@
       }
       api.decorate('composer', (ctx) => {
         if (!ctx.files) return null;
-        const b = h('button', { class: 'btn rec-btn', title: 'Записать голосовое сообщение' }, '🎤');
+        const b = h('button', { class: 'btn rec-btn', title: 'Записать голосовое сообщение' }, '{{ic:mic}}');
         b.onclick = async () => {
           if (rec) { rec.stop(true); return; }
           try { rec = await startRec(b, ctx); } catch (e) { api.toast('Нет доступа к микрофону'); }
@@ -273,11 +273,11 @@
 
   def({
     id: 'voice-activity', name: 'Кто в голосе', category: 'Участники и профиль', origin: 'BetterDiscord: VoiceActivity, Vencord: UserVoiceShow', defaultOn: true,
-    description: 'Значок 🔊 у тех, кто в голосовом канале, а в профиле — канал и кнопка «Присоединиться».',
+    description: 'Значок {{ic:speaker}} у тех, кто в голосовом канале, а в профиле — канал и кнопка «Присоединиться».',
     start(api) {
       api.decorate('member', ({ member }) => {
         const ch = voiceChannelOf(api.app, member.sid);
-        return ch ? h('span', { class: 'voice-ic', title: 'В голосе: ' + ch.name }, member.screen ? '📺' : '🔊') : null;
+        return ch ? h('span', { class: 'voice-ic', title: 'В голосе: ' + ch.name }, member.screen ? '{{ic:tv}}' : '{{ic:speaker}}') : null;
       });
       api.decorate('profile', ({ user }) => {
         const ch = user.sid && voiceChannelOf(api.app, user.sid);
@@ -285,7 +285,7 @@
         const v = api.app.voice();
         const here = v && v.channel === ch.id;
         return h('div', { class: 'pf-section' }, h('div', { class: 'lbl2' }, 'В голосовом канале'),
-          h('div', { class: 'row' }, h('div', { class: 'grow' }, '🔊 ', h('b', null, ch.name), user.screen ? ' · показывает экран' : '', user.muted ? ' · 🔇' : ''),
+          h('div', { class: 'row' }, h('div', { class: 'grow' }, '{{ic:speaker}} ', h('b', null, ch.name), user.screen ? ' · показывает экран' : '', user.muted ? ' · {{ic:mic-off}}' : ''),
             here ? h('span', { class: 'hint' }, 'вы тоже здесь') : h('button', { class: 'btn primary', onclick: () => { document.querySelectorAll('.overlay').forEach((o) => o.remove()); api.app.joinVoice(ch.id); } }, 'Присоединиться')));
       });
     },
@@ -368,7 +368,7 @@
   // ================= Уведомления =================
   def({
     id: 'friend-watch', name: 'Слежка за друзьями', category: 'Уведомления', origin: 'BetterDiscord: FriendNotifications', defaultOn: true,
-    description: 'Выберите людей кнопкой 👁 в их профиле: уведомление, когда они выходят из сети, меняют статус-фразу, заходят в голос, включают музыку или экран.',
+    description: 'Выберите людей кнопкой {{ic:eye}} в их профиле: уведомление, когда они выходят из сети, меняют статус-фразу, заходят в голос, включают музыку или экран.',
     settings: [
       { key: 'all', type: 'switch', label: 'Следить за всеми в комнате', default: false },
       { key: 'offline', type: 'switch', label: 'Вышел из сети', default: true },
@@ -400,7 +400,7 @@
             if (lastVoice.get(sid) === ch) continue;
             const m = api.app.member(sid);
             const chan = api.app.channel(ch);
-            if (m && chan && isWatched(m) && sid !== (api.app.me() || {}).sid) api.app.notify(m, 'зашёл в голос', '🔊 ' + chan.name);
+            if (m && chan && isWatched(m) && sid !== (api.app.me() || {}).sid) api.app.notify(m, 'зашёл в голос', '{{ic:speaker}} ' + chan.name);
           }
         }
         lastVoice = next;
@@ -412,9 +412,9 @@
           const set = watched();
           if (set.has(user.uid)) set.delete(user.uid); else set.add(user.uid);
           api.storage.set('uids', [...set]);
-          b.textContent = set.has(user.uid) ? '👁 Слежу' : '👁 Следить';
+          b.replaceChildren(C.iconText(set.has(user.uid) ? '{{ic:eye}} Слежу' : '{{ic:eye}} Следить'));
           b.classList.toggle('on', set.has(user.uid));
-        } }, on ? '👁 Слежу' : '👁 Следить');
+        } }, on ? '{{ic:eye}} Слежу' : '{{ic:eye}} Следить');
         return h('div', { class: 'row', style: { marginTop: '12px' } }, b);
       });
     },
@@ -425,9 +425,9 @@
     id: 'call-timer', name: 'Таймер звонка', category: 'Голос и стрим', origin: 'Vencord: CallTimer', defaultOn: true,
     description: 'Под вашим именем внизу слева — сколько вы уже в голосовом канале.',
     start(api) {
-      const text = () => { const v = api.app.voice(); return v && v.joinedAt ? '🔊 ' + fmtClock((Date.now() - v.joinedAt) / 1000) : null; };
+      const text = () => { const v = api.app.voice(); return v && v.joinedAt ? '{{ic:speaker}} ' + fmtClock((Date.now() - v.joinedAt) / 1000) : null; };
       api.intercept('userbarSub', (sub) => text() || sub);
-      api.interval(() => { const t = text(); const el = document.querySelector('#userbar .sub'); if (t && el) { el.textContent = t; el.classList.add('call-timer'); } }, 1000);
+      api.interval(() => { const t = text(); const el = document.querySelector('#userbar .sub'); if (t && el) { el.replaceChildren(C.iconText(t)); el.classList.add('call-timer'); } }, 1000);
     },
   });
 
@@ -457,8 +457,8 @@
         let dlg = null;
         const items = () => {
           const q = input.value.toLowerCase();
-          return [...chans.map((c) => ({ label: (c.type === 'voice' ? '🔊 ' : '# ') + c.name, go: () => (c.type === 'voice' ? api.app.joinVoice(c.id) : api.app.openChannel(c.id)) })),
-            ...rooms.map((r) => ({ label: '🏠 ' + r.name, go: () => api.app.connectRoom(r) }))]
+          return [...chans.map((c) => ({ label: (c.type === 'voice' ? '{{ic:speaker}} ' : '# ') + c.name, go: () => (c.type === 'voice' ? api.app.joinVoice(c.id) : api.app.openChannel(c.id)) })),
+            ...rooms.map((r) => ({ label: '{{ic:home}} ' + r.name, go: () => api.app.connectRoom(r) }))]
             .filter((i) => i.label.toLowerCase().includes(q)).slice(0, 12);
         };
         const draw = () => list.replaceChildren(...items().map((i, n) => h('div', { class: 'list-item', style: { cursor: 'pointer', outline: n === 0 ? '1px solid var(--accent)' : '' }, onclick: () => { dlg.close(); i.go(); } }, i.label)));
@@ -519,26 +519,26 @@
     s.start(at); s.stop(at + dur + 0.05);
   }
   const SOUNDS = [
-    { key: 'horn', name: '📯 Горн', dur: 1.6, make(ctx) {
+    { key: 'horn', name: '{{ic:horn}} Горн', dur: 1.6, make(ctx) {
       for (const [at, d] of [[0, 0.22], [0.3, 0.18], [0.55, 0.95]]) for (const f of [415, 622, 830]) tone(ctx, { type: 'sawtooth', freq: f, at, dur: d, vol: 0.09, attack: 0.02 });
     } },
-    { key: 'rimshot', name: '🥁 Ба-дум-тсс', dur: 1.6, make(ctx) {
+    { key: 'rimshot', name: '{{ic:drum}} Ба-дум-тсс', dur: 1.6, make(ctx) {
       tone(ctx, { freq: 180, to: 60, at: 0, dur: 0.25, vol: 0.6 });
       tone(ctx, { freq: 260, to: 120, at: 0.22, dur: 0.2, vol: 0.45 });
       noiseHit(ctx, { at: 0.5, dur: 1.05, vol: 0.32, freq: 7000 });
     } },
-    { key: 'applause', name: '👏 Аплодисменты', dur: 2.8, make(ctx) {
+    { key: 'applause', name: '{{ic:sparkle}} Аплодисменты', dur: 2.8, make(ctx) {
       for (let i = 0; i < 160; i++) noiseHit(ctx, { at: Math.random() * 2.3, dur: 0.06 + Math.random() * 0.05, vol: 0.12 + Math.random() * 0.1, filter: 'bandpass', freq: 1500 + Math.random() * 2500, q: 1.2 });
     } },
-    { key: 'bell', name: '🔔 Дзынь', dur: 1.8, make(ctx) {
+    { key: 'bell', name: '{{ic:bell}} Дзынь', dur: 1.8, make(ctx) {
       for (const [f, v] of [[880, 0.3], [1772, 0.14], [2650, 0.08], [3540, 0.04]]) tone(ctx, { freq: f, at: 0, dur: 1.7, vol: v, attack: 0.003 });
     } },
-    { key: 'bloop', name: '💧 Бульк', dur: 0.4, make(ctx) { tone(ctx, { freq: 220, to: 980, at: 0, dur: 0.16, vol: 0.4, attack: 0.005 }); } },
-    { key: 'fanfare', name: '🎺 Фанфары', dur: 1.5, make(ctx) {
+    { key: 'bloop', name: '{{ic:drop}} Бульк', dur: 0.4, make(ctx) { tone(ctx, { freq: 220, to: 980, at: 0, dur: 0.16, vol: 0.4, attack: 0.005 }); } },
+    { key: 'fanfare', name: '{{ic:trumpet}} Фанфары', dur: 1.5, make(ctx) {
       [523, 659, 784].forEach((f, i) => tone(ctx, { type: 'square', freq: f, at: i * 0.13, dur: 0.12, vol: 0.12 }));
       for (const f of [1047, 784, 523]) tone(ctx, { type: 'square', freq: f, at: 0.42, dur: 0.95, vol: 0.08 });
     } },
-    { key: 'fail', name: '🎷 Провал', dur: 2.6, make(ctx) {
+    { key: 'fail', name: '{{ic:sax}} Провал', dur: 2.6, make(ctx) {
       [392, 370, 349].forEach((f, i) => tone(ctx, { type: 'sawtooth', freq: f, at: i * 0.45, dur: 0.4, vol: 0.14, attack: 0.03 }));
       const o = tone(ctx, { type: 'sawtooth', freq: 330, at: 1.35, dur: 1.2, vol: 0.14, attack: 0.03 });
       const lfo = ctx.createOscillator(); const depth = ctx.createGain();
@@ -554,7 +554,7 @@
 
   def({
     id: 'soundboard', name: 'Звуковая панель', category: 'Голос и стрим', origin: 'Vencord: NitroSoundpad', defaultOn: true,
-    description: 'Кнопка «🔊 Звуки» в голосовом канале: звук слышат все в канале. Есть встроенные звуки, можно добавить свои файлы (mp3, ogg, wav до 3 МБ).',
+    description: 'Кнопка «{{ic:speaker}} Звуки» в голосовом канале: звук слышат все в канале. Есть встроенные звуки, можно добавить свои файлы (mp3, ogg, wav до 3 МБ).',
     settings: [{ key: 'volume', type: 'range', label: 'Громкость звуков', min: 5, max: 100, default: 70, unit: '%' }],
     start(api) {
       const cache = new Map();
@@ -581,13 +581,13 @@
           const own = await native.soundsList().catch(() => []);
           const item = (snd, removable) => {
             const b = h('button', { class: 'sb-item', title: snd.name, onclick: () => play(snd, b) }, snd.name,
-              removable ? h('span', { class: 'sb-x', title: 'Удалить', onclick: async (e) => { e.stopPropagation(); await native.soundsRemove(snd.file); cache.delete(snd.key); draw(); } }, '✕') : null);
+              removable ? h('span', { class: 'sb-x', title: 'Удалить', onclick: async (e) => { e.stopPropagation(); await native.soundsRemove(snd.file); cache.delete(snd.key); draw(); } }, '{{ic:close}}') : null);
             return b;
           };
           pop.replaceChildren(h('div', { class: 'hp-title' }, 'Звуковая панель'),
-            h('div', { class: 'sb-grid' }, SOUNDS.map((s) => item(s, false)), own.map((f) => item({ key: 'f:' + f.file, name: '🎵 ' + f.name, url: f.url, file: f.file }, true))),
+            h('div', { class: 'sb-grid' }, SOUNDS.map((s) => item(s, false)), own.map((f) => item({ key: 'f:' + f.file, name: '{{ic:note}} ' + f.name, url: f.url, file: f.file }, true))),
             h('div', { class: 'row', style: { marginTop: '8px' } },
-              h('button', { class: 'btn', onclick: async () => { const r = await native.soundsImport(); if (r.skipped) api.toast(`Пропущено файлов: ${r.skipped} (больше 3 МБ или не звук)`); draw(); } }, '＋ Свои звуки'),
+              h('button', { class: 'btn', onclick: async () => { const r = await native.soundsImport(); if (r.skipped) api.toast(`Пропущено файлов: ${r.skipped} (больше 3 МБ или не звук)`); draw(); } }, '{{ic:plus}} Свои звуки'),
               h('span', { class: 'hint' }, 'Слышат все в канале')));
         };
         await draw();
@@ -598,7 +598,7 @@
         const off = (ev) => { if (!pop.contains(ev.target) && !anchor.contains(ev.target)) { pop.remove(); document.removeEventListener('mousedown', off); } };
         setTimeout(() => document.addEventListener('mousedown', off), 0);
       };
-      api.decorate('voiceControls', () => h('button', { class: 'btn', title: 'Звуковая панель', onclick: (e) => open(e.currentTarget) }, '🔊 Звуки'));
+      api.decorate('voiceControls', () => h('button', { class: 'btn', title: 'Звуковая панель', onclick: (e) => open(e.currentTarget) }, '{{ic:speaker}} Звуки'));
     },
   });
 
@@ -633,11 +633,11 @@
     description: 'Подсказка при наведении на комнату слева: код, адрес, пароль, когда вы заходили и сколько было людей.',
     start(api) {
       api.decorate('roomTooltip', (room) => [
-        room.locked ? '🔒 закрыта паролем' : '🔓 без пароля',
+        room.locked ? '{{ic:lock}} закрыта паролем' : '{{ic:unlock}} без пароля',
         `Код: ${room.code}`, `Адрес: ${room.host}:${room.port}`,
         room.lastVisit ? 'Последний вход: ' + api.app.fmtTime(room.lastVisit) : null,
         room.lastMembers ? `Участников при входе: ${room.lastMembers}` : null,
-        room.pinned ? '📌 закреплена' : null,
+        room.pinned ? '{{ic:pin}} закреплена' : null,
       ]);
     },
   });
@@ -645,11 +645,11 @@
   // ================= Активность и музыка =================
   def({
     id: 'activity-toggle', name: 'Кнопка активности', category: 'Активность и музыка', origin: 'BetterDiscord: GameActivityToggle', defaultOn: true,
-    description: 'Кнопка 🎮 внизу слева: одним нажатием скрыть или показать друзьям, во что вы играете.',
+    description: 'Кнопка {{ic:gamepad}} внизу слева: одним нажатием скрыть или показать друзьям, во что вы играете.',
     start(api) {
       api.decorate('userbar', () => {
         const on = api.app.shareActivity;
-        return h('button', { class: 'icon-btn' + (on ? '' : ' off'), title: on ? 'Активность видна друзьям' : 'Активность скрыта', onclick: () => { api.app.setShareActivity(!on); api.app.rerenderUserbar(); } }, on ? '🎮' : '🚫');
+        return h('button', { class: 'icon-btn' + (on ? '' : ' off'), title: on ? 'Активность видна друзьям' : 'Активность скрыта', onclick: () => { api.app.setShareActivity(!on); api.app.rerenderUserbar(); } }, on ? '{{ic:gamepad}}' : '{{ic:block}}');
       });
     },
   });
@@ -662,7 +662,7 @@
       { key: 'details', type: 'text', label: 'Подробности', default: '', max: 128 },
       { key: 'state', type: 'text', label: 'Состояние', default: '', max: 128 },
       { key: 'image', type: 'text', label: 'Картинка (ссылка)', default: '', max: 300, placeholder: 'https://i.imgur.com/…', hint: 'Только с проверенных сайтов, как аватар.' },
-      { key: 'kind', type: 'select', label: 'Вид', default: 'game', options: [['game', '🎮 Играет'], ['music', '🎵 Слушает']] },
+      { key: 'kind', type: 'select', label: 'Вид', default: 'game', options: [['game', '{{ic:gamepad}} Играет'], ['music', '{{ic:note}} Слушает']] },
       { key: 'timer', type: 'switch', label: 'Показывать время с начала', default: true },
     ],
     start(api) {
@@ -705,13 +705,13 @@
         const cmd = (c) => native.mediaCommand(c);
         const state = api.app.getState();
         return h('div', { class: 'np-panel' },
-          h('div', { class: 'np-title', title: track.title }, '🎵 ', track.title), h('div', { class: 'np-artist' }, [track.artist, track.app].filter(Boolean).join(' · ')),
+          h('div', { class: 'np-title', title: track.title }, '{{ic:note}} ', track.title), h('div', { class: 'np-artist' }, [track.artist, track.app].filter(Boolean).join(' · ')),
           track.dur ? h('div', { class: 'np-bar' }, h('i', { style: { width: Math.min(100, (pos() / track.dur) * 100) + '%' } })) : null,
           h('div', { class: 'np-ctrl' },
-            h('button', { class: 'icon-btn', title: 'Предыдущий', onclick: () => cmd('prev') }, '⏮'),
-            h('button', { class: 'icon-btn', title: track.playing ? 'Пауза' : 'Играть', onclick: () => cmd('toggle') }, track.playing ? '⏸' : '▶'),
-            h('button', { class: 'icon-btn', title: 'Следующий', onclick: () => cmd('next') }, '⏭'),
-            state.view.type === 'text' ? h('button', { class: 'icon-btn', title: 'Поделиться треком в чате', onclick: () => api.app.sendMessage(state.channel, `🎵 Слушаю: ${[track.artist, track.title].filter(Boolean).join(' — ')}`) }, '📤') : null,
+            h('button', { class: 'icon-btn', title: 'Предыдущий', onclick: () => cmd('prev') }, '{{ic:prev}}'),
+            h('button', { class: 'icon-btn', title: track.playing ? 'Пауза' : 'Играть', onclick: () => cmd('toggle') }, track.playing ? '{{ic:pause}}' : '{{ic:play}}'),
+            h('button', { class: 'icon-btn', title: 'Следующий', onclick: () => cmd('next') }, '{{ic:next}}'),
+            state.view.type === 'text' ? h('button', { class: 'icon-btn', title: 'Поделиться треком в чате', onclick: () => api.app.sendMessage(state.channel, `🎵 Слушаю: ${[track.artist, track.title].filter(Boolean).join(' — ')}`) }, '{{ic:share}}') : null,
             track.dur ? h('span', { class: 'hint np-time', style: { marginLeft: 'auto', alignSelf: 'center' } }, `${fmtClock(pos())} / ${fmtClock(track.dur)}`) : null));
       });
     },

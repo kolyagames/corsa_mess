@@ -568,6 +568,39 @@ function testUpdater() {
   assert.ok(up.cmpVer('0.10.0', '0.9.9') > 0 && up.cmpVer('0.5.0', '0.5.0') === 0 && up.cmpVer('0.4.9', '0.5.0') < 0);
 }
 
+// Иконки: контуры — корректные SVG-пути, а каждая метка {{ic:имя}} в коде ведёт на существующую иконку.
+function testIcons() {
+  const vm = require('vm');
+  const ctx = { window: {}, document: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'icons.js'), 'utf8'), ctx);
+  const defs = ctx.window.Corsa.iconDefs;
+  const ARGS = { M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7, Z: 0 };
+  for (const [name, parts] of Object.entries(defs)) {
+    assert.ok(parts.length > 0, `${name}: нет частей`);
+    for (const part of parts) {
+      assert.match(part, /^[fsd]:M/, `${name}: часть должна начинаться с f:, s: или d: и команды M`);
+      const d = part.slice(2);
+      assert.ok(!/[^MmLlHhVvCcSsQqTtAaZz0-9.\s-]/.test(d), `${name}: лишние символы в пути`);
+      const tokens = d.match(/[MmLlHhVvCcSsQqTtAaZz]|-?\d*\.?\d+/g) || [];
+      let i = 0;
+      while (i < tokens.length) {
+        const cmd = tokens[i++];
+        assert.ok(ARGS[cmd.toUpperCase()] !== undefined, `${name}: ожидалась команда, а не ${cmd}`);
+        let n = 0;
+        while (i < tokens.length && !/[A-Za-z]/.test(tokens[i])) { i++; n++; }
+        const need = ARGS[cmd.toUpperCase()];
+        assert.ok(need === 0 ? n === 0 : n > 0 && n % need === 0, `${name}: команда ${cmd} получила ${n} чисел вместо кратного ${need}`);
+      }
+    }
+  }
+  const used = new Set();
+  for (const f of ['app.js', 'builtin/plugins.js']) {
+    for (const m of fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8').matchAll(/\{\{ic:([a-z0-9-]+)\}\}/g)) used.add(m[1]);
+  }
+  assert.ok(used.size > 40, 'иконки должны использоваться в интерфейсе');
+  for (const name of used) assert.ok(defs[name], `метка {{ic:${name}}} ведёт на несуществующую иконку`);
+}
+
 // Поиск комнат в локальной сети: ответ приходит на запрос, сведения о комнате верные.
 async function testLan() {
   const lan = require('../server/lan');
@@ -593,5 +626,6 @@ async function testLan() {
   await testDmPins(); console.log('ok  личные сообщения и закрепы');
   await testFiles(); console.log('ok  файлы: ключ, тип по содержимому, Range, удаление');
   testUpdater(); console.log('ok  обновление: адрес и версия проверяются строго');
+  testIcons(); console.log('ok  иконки: пути корректны, метки ведут на существующие иконки');
   await testLan(); console.log('ok  поиск комнат в локальной сети');
 })().catch((e) => { console.error('ПРОВАЛ:', e); process.exit(1); });

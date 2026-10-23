@@ -5,8 +5,10 @@
   C.h = function h(tag, attrs, ...kids) {
     const el = document.createElement(tag);
     if (attrs) {
-      for (const [k, v] of Object.entries(attrs)) {
+      for (let [k, v] of Object.entries(attrs)) {
         if (v == null || v === false) continue;
+        // В атрибутах (подсказка, поле ввода) иконку показать нельзя: метка вырезается.
+        if (typeof v === 'string' && v.includes('{{ic:')) v = C.stripIcons(v);
         if (k === 'class') el.className = v;
         else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
         else if (k === 'dataset') Object.assign(el.dataset, v);
@@ -17,7 +19,9 @@
     }
     for (const kid of kids.flat(Infinity)) {
       if (kid == null || kid === false) continue;
-      el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+      if (kid.nodeType) { el.append(kid); continue; }
+      const s = String(kid);
+      el.append(s.includes('{{ic:') && C.iconText ? C.iconText(s) : document.createTextNode(s));
     }
     return el;
   };

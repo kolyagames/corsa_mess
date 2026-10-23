@@ -59,18 +59,21 @@
       const far = colors.every((c) => (it.hsl[1] > 0.2 && c.hsl[1] > 0.2 ? hueDist(it.hsl[0], c.hsl[0]) > 35 : Math.abs(it.hsl[2] - c.hsl[2]) > 0.25));
       if (far) colors.push(it);
     }
-    const lead = colors[0];
-    const maxSat = items.reduce((m, it) => Math.max(m, it.share > 0.01 ? it.hsl[1] : 0), 0);
+    const out = (list) => list.map((c) => ({ rgb: c.rgb.map(Math.round), hsl: c.hsl, share: c.share }));
+    // Главный цвет выбирается среди насыщенных и заметных по площади: серый или белый фон акцентом не становится,
+    // даже если его в картинке больше всего.
+    const vivid = items.filter((it) => it.hsl[1] >= 0.18 && it.share > 0.01 && it.hsl[2] > 0.1 && it.hsl[2] < 0.93);
     // Практически серая картинка: цвет подбирать не из чего.
-    if (!lead || maxSat < 0.18) return { colors: colors.map((c) => ({ rgb: c.rgb.map(Math.round), hsl: c.hsl, share: c.share })), accent: null, accent2: null, gray: true };
-    // Второй цвет — насыщенный и не дальше 90° по тону: далёкие тона в градиенте смешиваются в серую кашу.
-    const second = colors.find((c, i) => i > 0 && c.hsl[1] > 0.2 && hueDist(c.hsl[0], lead.hsl[0]) <= 90);
+    if (!vivid.length) return { colors: out(colors), accent: null, accent2: null, gray: true };
+    const lead = vivid[0];
+    // Второй цвет — насыщенный, заметно другого тона, но не дальше 90°: далёкие тона в градиенте смешиваются в серую кашу.
+    const second = vivid.find((c) => c !== lead && hueDist(c.hsl[0], lead.hsl[0]) > 20 && hueDist(c.hsl[0], lead.hsl[0]) <= 90);
     // Если подходящего второго цвета нет, берём соседний тон: градиент получается из родственных оттенков.
     const accent2 = second ? second.rgb : hslToRgb([lead.hsl[0] + 38, clamp(lead.hsl[1], 0.45, 0.9), clamp(lead.hsl[2], 0.4, 0.62)]);
-    return {
-      colors: colors.map((c) => ({ rgb: c.rgb.map(Math.round), hsl: c.hsl, share: c.share })),
-      accent: lead.rgb.map(Math.round), accent2: accent2.map(Math.round), gray: false,
-    };
+    // Для показа в настройках: главный и ещё до двух заметно разных цветов.
+    const shown = [lead];
+    for (const it of items) { if (shown.length >= 3) break; if (shown.every((c) => (c.hsl[1] > 0.2 && it.hsl[1] > 0.2 ? hueDist(c.hsl[0], it.hsl[0]) > 35 : Math.abs(c.hsl[2] - it.hsl[2]) > 0.25))) shown.push(it); }
+    return { colors: out(shown), accent: lead.rgb.map(Math.round), accent2: accent2.map(Math.round), gray: false };
   }
 
   // Подгоняет цвет под интерфейс: в тёмном режиме светлее и насыщеннее, в светлом темнее, чтобы текст и кнопки читались.

@@ -631,6 +631,11 @@ function testPalette() {
   // Чёрный фон не перебивает цветной предмет, хотя занимает больше места.
   p = C.palette.fromPixels(px([...fill(800, [5, 5, 5]), ...fill(200, [250, 140, 20])]));
   assert.ok(p.accent[0] > 200 && p.accent[1] > 100, 'чёрный фон не становится акцентом');
+  // Почти белая картинка с небольшим цветным пятном: акцентом становится пятно, а не белый фон.
+  p = C.palette.fromPixels(px([...fill(900, [245, 245, 246]), ...fill(40, [230, 110, 40])]));
+  assert.strictEqual(p.gray, false);
+  assert.ok(p.accent[0] > 200 && p.accent[2] < 100, 'цветное пятно важнее белого фона');
+  assert.deepStrictEqual(p.colors[0].rgb, p.accent, 'в показе главный цвет первый');
   // Подгонка: в тёмном режиме светлее, в светлом темнее.
   const dark = C.palette.rgbToHsl(C.palette.fit([90, 10, 10], 'dark'))[2];
   const light = C.palette.rgbToHsl(C.palette.fit([250, 200, 200], 'light'))[2];

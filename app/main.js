@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, protocol, session, desktopCapturer, shell, dialog, Notification, globalShortcut, net } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, session, desktopCapturer, shell, dialog, Notification, globalShortcut, net, Tray, Menu, nativeImage, safeStorage } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -11,6 +11,12 @@ const { startPresenceBridge } = require('./presence');
 const { startMediaWatch } = require('./media');
 const upnp = require('./upnp');
 const lan = require('./server/lan');
+const updater = require('./updater');
+
+// Одна копия приложения: повторный запуск просто показывает уже открытое окно (оно могло быть свёрнуто в трей).
+if (!process.env.CORSA_TEST && !app.requestSingleInstanceLock()) app.exit(0);
+// Запуск вместе с Windows идёт с ключом --hidden: окно не показывается, приложение ждёт в трее.
+const startHidden = process.argv.includes('--hidden');
 
 // В локальной сети голос соединяется напрямую по адресам компьютеров. Chromium по умолчанию прячет их
 // за случайными именами .local, а в Windows такие имена часто не находятся: голос тогда не соединяется.
@@ -50,6 +56,11 @@ let renewTimer = null;
 let lanResponder = null;
 let media = null;
 let roomBinding = null; // комната, к которой сейчас подключён интерфейс: {host, port, token} для файлов
+let tray = null;
+let quitting = false;
+let trayHintShown = false;
+let updateFile = null; // скачанный и проверенный архив обновления
+const prefs = { closeToTray: true };
 let pins = {}; // закреплённые отпечатки серверов: адрес -> sha256
 
 // Все запросы из интерфейса принимаются только от нашей страницы в нашем окне.
@@ -230,7 +241,7 @@ function migrationScan() {
 function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 800, minWidth: 900, minHeight: 600,
-    backgroundColor: '#0e0407', title: 'corsa-mess', show: !process.env.CORSA_TEST,
+    backgroundColor: '#0e0407', title: 'corsa-mess', show: !process.env.CORSA_TEST && !startHidden,
     icon: path.join(__dirname, 'src', 'logo.png'),
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#0a0305', symbolColor: '#ecd9dc', height: 32 },
@@ -242,12 +253,55 @@ function createWindow() {
   });
   win.setMenuBarVisibility(false);
   win.on('focus', () => win.flashFrame(false));
+  // Крестик сворачивает в трей: комната, голос и уведомления продолжают работать.
+  win.on('close', (e) => {
+    if (quitting || !prefs.closeToTray || process.env.CORSA_TEST || !tray) return;
+    e.preventDefault();
+    win.hide();
+    if (!trayHintShown && Notification.isSupported()) {
+      trayHintShown = true;
+      new Notification({ title: 'corsa-mess работает в фоне', body: roomServer ? 'Ваша комната открыта для друзей. Выйти — правый клик по значку в трее.' : 'Открыть или выйти — значок в трее.', icon: path.join(__dirname, 'src', 'logo.png'), silent: true }).show();
+    }
+  });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   win.webContents.on('will-attach-webview', (e) => e.preventDefault());
   win.webContents.on('will-redirect', (e) => e.preventDefault());
   win.loadURL(APP_ORIGIN + '/');
 }
+
+function showWindow() {
+  if (!win || win.isDestroyed()) createWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+// Значок в трее: открыть окно, микрофон и звук, выход. Меню обновляется, когда сервер запускается или останавливается.
+function updateTrayMenu() {
+  if (!tray) return;
+  tray.setToolTip(roomServer ? 'corsa-mess — ваша комната открыта' : 'corsa-mess');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Открыть corsa-mess', click: showWindow },
+    { type: 'separator' },
+    { label: 'Микрофон вкл/выкл', click: () => tellUi('hotkey', 'mute') },
+    { label: 'Звук вкл/выкл', click: () => tellUi('hotkey', 'deafen') },
+    { type: 'separator' },
+    { label: roomServer ? 'Закрыть комнату и выйти' : 'Выйти', click: () => { quitting = true; app.quit(); } },
+  ]));
+}
+
+function createTray() {
+  if (tray || process.env.CORSA_TEST) return;
+  tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'src', 'logo.png')).resize({ width: 16, height: 16 }));
+  tray.on('click', showWindow);
+  updateTrayMenu();
+}
+
+// Секреты (пароль своей комнаты для автозапуска) шифруются средствами Windows и лежат в папке данных.
+const SECRET_KEYS = ['hostPassword'];
+const secretsFile = () => path.join(userDir(), 'secrets.json');
+function readSecrets() { try { return JSON.parse(fs.readFileSync(secretsFile(), 'utf8')) || {}; } catch (e) { return {}; } }
 
 const pinsFile = () => path.join(userDir(), 'pins.json');
 function loadPins() {
@@ -332,6 +386,7 @@ function setupIpc() {
       lanResponder = lan.createResponder({ getInfo: () => (roomServer ? { ...roomServer.info(), port: hostPort, fp: hostCert.fingerprint.slice(0, 23), id } : null) });
       await lanResponder.ready;
     }
+    updateTrayMenu();
     const ips = lanIps().filter((i) => i.kind !== 'virtual');
     const best = ips[0] && ips[0].address;
     return {
@@ -345,6 +400,7 @@ function setupIpc() {
     if (lanResponder) { lanResponder.close(); lanResponder = null; }
     if (roomServer) { await roomServer.stop(); roomServer = null; }
     hostPort = 0;
+    updateTrayMenu();
     return true;
   });
   ipcMain.handle('lan:scan', async () => {
@@ -370,6 +426,41 @@ function setupIpc() {
   });
   ipcMain.handle('media:cmd', (e, cmd) => { if (media) media.command(String(cmd)); return true; });
   ipcMain.handle('migrate:scan', () => migrationScan());
+  // Фон и автозапуск. Автозапуск с Windows доступен только в собранной версии.
+  ipcMain.handle('app:prefs', (e, p) => {
+    if (p && typeof p.closeToTray === 'boolean') prefs.closeToTray = p.closeToTray;
+    if (p && typeof p.autostart === 'boolean' && app.isPackaged) app.setLoginItemSettings({ openAtLogin: p.autostart, args: ['--hidden'] });
+    return { packaged: app.isPackaged, autostart: app.isPackaged ? app.getLoginItemSettings({ args: ['--hidden'] }).openAtLogin : false, startedHidden: startHidden, version: app.getVersion() };
+  });
+  ipcMain.handle('secret:set', (e, key, value) => {
+    if (!SECRET_KEYS.includes(key)) throw new Error('Неизвестный ключ');
+    const all = readSecrets();
+    if (!value) delete all[key];
+    else if (safeStorage.isEncryptionAvailable()) all[key] = safeStorage.encryptString(String(value).slice(0, 256)).toString('base64');
+    else return false;
+    fs.writeFileSync(secretsFile(), JSON.stringify(all));
+    return true;
+  });
+  ipcMain.handle('secret:get', (e, key) => {
+    if (!SECRET_KEYS.includes(key)) throw new Error('Неизвестный ключ');
+    const v = readSecrets()[key];
+    try { return v && safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(v, 'base64')) : ''; } catch (err) { return ''; }
+  });
+  // Обновления: проверить, скачать с проверкой суммы, установить и перезапустить.
+  ipcMain.handle('update:check', () => updater.check());
+  ipcMain.handle('update:download', async (e, info) => {
+    updateFile = null;
+    updateFile = await updater.download(info, (p) => tellUi('update:progress', p));
+    return true;
+  });
+  ipcMain.handle('update:install', () => {
+    if (!updateFile) throw new Error('Сначала скачайте обновление');
+    updater.install(updateFile);
+    quitting = true;
+    setTimeout(() => app.quit(), 300);
+    return true;
+  });
+  ipcMain.handle('update:page', (e, url) => { if (/^https:\/\/github\.com\/kolyagames\/corsa_mess\//.test(String(url))) shell.openExternal(String(url)); return true; });
   // Файлы комнаты: интерфейс сообщает, к какой комнате он подключён, загрузка и сохранение идут отсюда.
   ipcMain.handle('room:bind', (e, b) => {
     const ok = b && /^([a-z0-9.-]{1,253}|\[[0-9a-f:]+\])$/i.test(String(b.host)) && Number.isInteger(b.port) && b.port > 0 && b.port < 65536 && /^[0-9a-f]{32}$/.test(String(b.token));
@@ -547,10 +638,13 @@ app.whenReady().then(() => {
   setupSession();
   setupIpc();
   createWindow();
+  createTray();
   bridge = startPresenceBridge({ onChange: (a) => win && !win.isDestroyed() && win.webContents.send('presence:change', a) });
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
+app.on('second-instance', () => showWindow());
+app.on('before-quit', () => { quitting = true; });
 app.on('will-quit', () => globalShortcut.unregisterAll());
 
 app.on('window-all-closed', async () => {

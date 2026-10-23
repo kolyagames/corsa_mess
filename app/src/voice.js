@@ -28,6 +28,8 @@
       this.peers = new Map(); // sid -> {pc, polite, makingOffer, ignoreOffer, senders:Map, streams:Map}
       this.micStream = null;
       this.screenStream = null;
+      this.cameraStream = null;
+      this.pendingKinds = new Map(); // sid -> {streamId: 'screen'|'camera'}, если сигнал пришёл раньше соединения
       this.muted = false;
       this.deafened = false;
       this.speaking = new Set();
@@ -146,6 +148,7 @@
     async leave() {
       if (!this.channel) return;
       this.stopScreen(false);
+      this.stopCamera(false);
       for (const sid of [...this.peers.keys()]) this.closePeer(sid);
       this.teardownGraph();
       if (this.micStream) this.micStream.getTracks().forEach((t) => t.stop());
@@ -198,7 +201,9 @@
       // Так при входе в канал не бывает встречных предложений, на которых соединение могло зависнуть.
       const peer = {
         pc, polite: this.client.sid > sid, initiator: this.client.sid < sid, makingOffer: false, ignoreOffer: false, senders: new Map(), streams: new Map(),
+        kinds: this.pendingKinds.get(sid) || {},
       };
+      this.pendingKinds.delete(sid);
       peer.retries = retries;
       this.peers.set(sid, peer);
       // Сторожевой таймер: если за 15 секунд соединение не поднялось (потерянное предложение, зависший сбор адресов),
@@ -209,6 +214,8 @@
       const voiceOut = this.sendStream || this.micStream;
       if (voiceOut) for (const t of voiceOut.getTracks()) peer.senders.set(t.id, pc.addTrack(t, voiceOut));
       if (this.screenStream) for (const t of this.screenStream.getTracks()) peer.senders.set(t.id, pc.addTrack(t, this.screenStream));
+      if (this.cameraStream) for (const t of this.cameraStream.getTracks()) peer.senders.set(t.id, pc.addTrack(t, this.cameraStream));
+      this.announceKinds(sid);
 
       pc.onicecandidate = (e) => { if (e.candidate) this.client.send({ t: 'rtc', to: sid, data: { candidate: e.candidate } }); };
       pc.onnegotiationneeded = async () => {
@@ -258,8 +265,24 @@
       this.speaking.delete(sid);
     }
 
+    // Какой из наших видеопотоков экран, а какой камера: собеседник показывает их по-разному.
+    announceKinds(sid) {
+      const kinds = {};
+      if (this.screenStream) kinds[this.screenStream.id] = 'screen';
+      if (this.cameraStream) kinds[this.cameraStream.id] = 'camera';
+      const targets = sid ? [sid] : [...this.peers.keys()];
+      for (const to of targets) this.client.send({ t: 'rtc', to, data: { kinds } });
+    }
+
     async onSignal(from, data) {
       if (!this.channel || !data || typeof data !== 'object') return;
+      if (data.kinds && typeof data.kinds === 'object') {
+        const kinds = {};
+        for (const [id, k] of Object.entries(data.kinds).slice(0, 4)) if (typeof id === 'string' && id.length < 100 && (k === 'screen' || k === 'camera')) kinds[id] = k;
+        const known = this.peers.get(from);
+        if (known) { known.kinds = kinds; this.onChange(); } else this.pendingKinds.set(from, kinds);
+        return;
+      }
       let peer = this.peers.get(from);
       if (!peer) {
         // Соединение создаётся только по настоящему предложению: одиночные «кандидаты» от неизвестного не создают записей.
@@ -301,6 +324,9 @@
         if (sender.track.kind === 'audio') {
           p.encodings[0].maxBitrate = this.audioBitrate();
           p.encodings[0].priority = 'high';
+        } else if (this.cameraStream && this.cameraStream.getVideoTracks().includes(sender.track)) {
+          p.encodings[0].maxBitrate = 2.5e6;
+          p.encodings[0].maxFramerate = 30;
         } else if (this.screenStream && this.screenStream.getVideoTracks().includes(sender.track)) {
           // Зрителю в той же локальной сети отдаём больше: сеть это выдержит.
           const lan = s.lanBoost && peer.stats && peer.stats.lan;
@@ -369,8 +395,41 @@
         for (const t of stream.getTracks()) peer.senders.set(t.id, peer.pc.addTrack(t, stream));
         this.tuneSenders(peer);
       }
+      this.announceKinds();
       this.sendFlags({ screen: true });
       this.onChange();
+    }
+
+    // Камера: 720p, 30 кадров. Видят все в канале, как показ экрана, но в плитке участника.
+    async startCamera() {
+      if (this.cameraStream || !this.channel) return;
+      const s = this.getSettings();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: s.cameraId && s.cameraId !== 'default' ? { exact: s.cameraId } : undefined, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+      });
+      this.cameraStream = stream;
+      for (const t of stream.getVideoTracks()) { t.contentHint = 'motion'; t.onended = () => this.stopCamera(); }
+      for (const peer of this.peers.values()) {
+        for (const t of stream.getTracks()) peer.senders.set(t.id, peer.pc.addTrack(t, stream));
+        this.tuneSenders(peer);
+      }
+      this.announceKinds();
+      this.sendFlags({ camera: true });
+      this.onChange();
+    }
+
+    stopCamera(notify = true) {
+      if (!this.cameraStream) return;
+      for (const t of this.cameraStream.getTracks()) {
+        t.stop();
+        for (const peer of this.peers.values()) {
+          const sender = peer.senders.get(t.id);
+          if (sender) { try { peer.pc.removeTrack(sender); } catch (e) { /* ignore */ } peer.senders.delete(t.id); }
+        }
+      }
+      this.cameraStream = null;
+      if (this.channel) this.sendFlags({ camera: false });
+      if (notify) this.onChange();
     }
 
     stopScreen(notify = true) {
@@ -387,13 +446,14 @@
       if (notify) this.onChange();
     }
 
-    // Все видеопотоки для сетки: [{sid, stream, mine}]
+    // Все видеопотоки для сетки: [{sid, stream, mine, kind: 'screen'|'camera'}]
     videoTiles() {
       const tiles = [];
-      if (this.screenStream) tiles.push({ sid: this.client.sid, stream: this.screenStream, mine: true });
+      if (this.screenStream) tiles.push({ sid: this.client.sid, stream: this.screenStream, mine: true, kind: 'screen' });
+      if (this.cameraStream) tiles.push({ sid: this.client.sid, stream: this.cameraStream, mine: true, kind: 'camera' });
       for (const [sid, peer] of this.peers) {
         for (const stream of peer.streams.values()) {
-          if (stream.getVideoTracks().some((t) => t.readyState === 'live')) tiles.push({ sid, stream, mine: false });
+          if (stream.getVideoTracks().some((t) => t.readyState === 'live')) tiles.push({ sid, stream, mine: false, kind: peer.kinds[stream.id] || 'screen' });
         }
       }
       return tiles;

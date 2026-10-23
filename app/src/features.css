@@ -40,6 +40,21 @@
 .act-card { display: flex; gap: 12px; align-items: center; }
 .act-card .act-img { width: 64px; height: 64px; border-radius: var(--r); object-fit: cover; flex: none; }
 
+/* ---------- Камера ---------- */
+.voice-controls { flex-wrap: wrap; }
+.voice-controls .btn { white-space: nowrap; }
+.tile.cam { padding: 0; }
+.tile.cam > video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+.tile.cam > video.mirror { transform: scaleX(-1); }
+.link-previews { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.link-previews img, .link-previews video { max-width: min(360px, 100%); max-height: 280px; border-radius: var(--r); display: block; cursor: zoom-in; }
+
+/* ---------- Обновления ---------- */
+.update-bar { margin: 0 8px 8px; padding: 8px 10px; border-radius: var(--r); background: color-mix(in srgb, var(--online) 22%, var(--panel)); font-size: 12px; font-weight: 600; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+.update-bar span { color: var(--online); }
+.update-bar:hover { filter: brightness(1.12); }
+.update-notes .bio { max-height: 240px; overflow-y: auto; background: var(--fill); padding: 10px 12px; border-radius: var(--r); font-size: 13px; margin-top: 0; }
+
 /* ---------- Вложения ---------- */
 .atts { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; align-items: flex-start; }
 .att { position: relative; border-radius: var(--r); overflow: hidden; max-width: min(460px, 100%); }

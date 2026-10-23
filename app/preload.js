@@ -29,6 +29,18 @@ contextBridge.exposeInMainWorld('corsaNative', {
     return () => ipcRenderer.removeListener('media:change', fn);
   },
   migrationScan: () => ipcRenderer.invoke('migrate:scan'),
+  appPrefs: (p) => ipcRenderer.invoke('app:prefs', p),
+  secretSet: (key, value) => ipcRenderer.invoke('secret:set', key, value),
+  secretGet: (key) => ipcRenderer.invoke('secret:get', key),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateDownload: (info) => ipcRenderer.invoke('update:download', info),
+  updateInstall: () => ipcRenderer.invoke('update:install'),
+  openReleasePage: (url) => ipcRenderer.invoke('update:page', url),
+  onUpdateProgress: (cb) => {
+    const fn = (e, p) => cb(p);
+    ipcRenderer.on('update:progress', fn);
+    return () => ipcRenderer.removeListener('update:progress', fn);
+  },
   roomBind: (b) => ipcRenderer.invoke('room:bind', b),
   uploadFile: (f) => ipcRenderer.invoke('room:upload', f),
   saveRoomFile: (f) => ipcRenderer.invoke('room:save', f),

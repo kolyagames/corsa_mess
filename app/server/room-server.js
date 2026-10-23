@@ -226,7 +226,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       activity: hidden ? null : m.activity,
       since: firstSeen.get(pubId(m.uid)) || null, joinedAt: hidden ? null : m.joinedAt, host: isOwner(m),
       // Состояние в голосе: микрофон, звук, показ экрана и чей экран смотрит.
-      muted: !!m.muted, deaf: !!m.deaf, screen: !!(m.voice && m.screen), watching: m.voice ? m.watching : null,
+      muted: !!m.muted, deaf: !!m.deaf, screen: !!(m.voice && m.screen), camera: !!(m.voice && m.camera), watching: m.voice ? m.watching : null,
     };
   }
 
@@ -546,7 +546,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       case 'voice': {
         const ch = channels.find((c) => c.id === msg.channel && c.type === 'voice');
         m.voice = ch ? ch.id : null;
-        if (!m.voice) { m.screen = false; m.watching = null; }
+        if (!m.voice) { m.screen = false; m.camera = false; m.watching = null; }
         if (typeof msg.muted === 'boolean') m.muted = msg.muted;
         if (typeof msg.deaf === 'boolean') m.deaf = msg.deaf;
         broadcast({ t: 'voice', voice: voiceState() });
@@ -557,6 +557,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         if (typeof msg.muted === 'boolean') m.muted = msg.muted;
         if (typeof msg.deaf === 'boolean') m.deaf = msg.deaf;
         if (typeof msg.screen === 'boolean') m.screen = msg.screen;
+        if (typeof msg.camera === 'boolean') m.camera = msg.camera;
         if ('watching' in msg) {
           const target = members.get(msg.watching);
           m.watching = target && m.voice && target.voice === m.voice ? target.sid : null;

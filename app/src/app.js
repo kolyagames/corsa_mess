@@ -10,6 +10,8 @@
     notifyPlaying: true, notifyOnline: true, notifySound: true, notifyMessages: 'mentions', notifyDm: true, notifyPreview: true,
     // Голос: шумовой порог (null — выключен) и глобальные клавиши
     gateDb: null, hotkeysGlobal: false, hotMute: 'Control+Shift+M', hotDeafen: 'Control+Shift+D',
+    // Запуск и фон, обновления
+    closeToTray: true, autostart: false, autoJoin: true, autoHost: false, checkUpdates: true,
     // Вид приложения
     design: 'neon', mode: 'dark', font: 'design', fontSize: 14, round: null, density: 'cozy', msgStyle: 'list', avatarShape: 'circle',
     appBg: '', appBgDim: 55, appBgBlur: 0, showMembers: true, clock24: true, quickCss: '', groupMessages: true, gifHover: false,
@@ -838,7 +840,7 @@
             if (inside.length) {
               scroll.append(h('div', { class: 'voice-members' }, inside.map((m) =>
                 h('div', { class: 'voice-member', dataset: { sid: m.sid }, onclick: () => openProfileCard(m) }, avatarEl(m), nameEl(m, { tag: false }),
-                  h('span', { class: 'vflags' }, m.screen ? h('span', { class: 'live' }, 'LIVE') : null, m.muted ? '🔇' : null, m.deaf ? '🙉' : null)))));
+                  h('span', { class: 'vflags' }, m.screen ? h('span', { class: 'live' }, 'LIVE') : null, m.camera ? '📷' : null, m.muted ? '🔇' : null, m.deaf ? '🙉' : null)))));
             }
           }
         }
@@ -853,7 +855,8 @@
       title: S.conn && S.conn.owner ? 'Настройки комнаты' : '',
       onclick: () => { if (S.conn && S.conn.owner) openSettings('room'); },
     }, h('span', { class: 'room-name' }, room ? room.name : 'corsa-mess'), S.conn ? h('span', { class: 'ping', id: 'ping' }) : null);
-    s.replaceChildren(header, scroll, ...C.plugins.collect('sideBottom', {}), h('div', { class: 'userbar', id: 'userbar' }));
+    const updateBar = S.update && S.update.newer ? h('div', { class: 'update-bar', onclick: () => openSettings('updates') }, `⬆ Доступна версия ${S.update.version}`, h('span', null, 'Обновить')) : null;
+    s.replaceChildren(...[header, scroll, ...C.plugins.collect('sideBottom', {}), updateBar, h('div', { class: 'userbar', id: 'userbar' })].filter(Boolean));
     renderUserbar();
     renderPing();
     updateSpeaking();
@@ -1003,13 +1006,7 @@
         h('label', { class: 'lbl' }, 'Пароль сети'), netPass,
         h('div', { class: 'hint' }, 'С паролем в комнату войдут только те, кто его знает. Пароль не передаётся по сети.'),
         h('div', { class: 'row', style: { marginTop: '16px' } }, h('button', { class: 'btn primary', onclick: async () => {
-          try {
-            // Владелец узнаётся по идентификатору для адреса 127.0.0.1: его знает только этот компьютер.
-            S.hosting = await native.hostStart({ name: roomName.value, port: Number(port.value), ownerUid: await deriveUid('127.0.0.1', Number(port.value)), password: netPass.value, lanVisible: S.settings.lanVisible });
-            S.hostPassword = netPass.value;
-            await connectTo({ host: '127.0.0.1', port: S.hosting.port }, { password: S.hostPassword });
-            renderMain();
-          } catch (e) { C.toast('Не удалось запустить сервер: ' + (e.message || e)); }
+          try { await startHosting({ name: roomName.value, port: Number(port.value), password: netPass.value }); } catch (e) { C.toast('Не удалось запустить сервер: ' + cleanErr(e)); }
         } }, 'Запустить сервер')));
     } else {
       const hs = S.hosting;
@@ -1075,6 +1072,34 @@
     if (S.settings.lanScan) { scanLan(); lanTimer = setInterval(() => { if (S.view.type === 'home' && document.getElementById('lan-list')) scanLan(); else clearInterval(lanTimer); }, 4000); }
   }
 
+  // Запуск своей комнаты. Название и порт запоминаются для автозапуска, пароль — только если автозапуск включён
+  // (в зашифрованном виде средствами Windows).
+  async function startHosting({ name, port, password }) {
+    // Владелец узнаётся по идентификатору для адреса 127.0.0.1: его знает только этот компьютер.
+    S.hosting = await native.hostStart({ name, port, ownerUid: await deriveUid('127.0.0.1', port), password, lanVisible: S.settings.lanVisible });
+    S.hostPassword = password;
+    store.set('lastHost', { name, port: S.hosting.port });
+    if (S.settings.autoHost) await native.secretSet('hostPassword', password || '').catch(() => {});
+    await connectTo({ host: '127.0.0.1', port: S.hosting.port }, { password });
+    renderMain();
+  }
+
+  // Что сделать при запуске приложения: поднять свою комнату или зайти в последнюю.
+  async function startupActions() {
+    const last = store.get('lastHost', null);
+    if (S.settings.autoHost && last && last.port) {
+      try {
+        const password = await native.secretGet('hostPassword').catch(() => '');
+        await startHosting({ name: last.name || S.profile.name + ' — комната', port: last.port, password });
+        return;
+      } catch (e) { C.toast('Комната не запустилась сама: ' + cleanErr(e)); }
+    }
+    if (S.settings.autoJoin && S.rooms[0] && !S.conn) {
+      const r = S.rooms[0];
+      await connectTo({ host: r.host, port: r.port }, { reconnecting: true });
+    }
+  }
+
   // Друзья
   function renderFriends(m) {
     const members = [...S.conn.members.values()];
@@ -1123,6 +1148,22 @@
       }
     }
     return box;
+  }
+
+  // Ссылки на картинки, GIF и видео с проверенных сайтов показываются под сообщением (до трёх).
+  // Ссылки внутри спойлера не раскрываются.
+  function linkPreviews(text) {
+    if (!text) return null;
+    const bare = text.replace(/\|\|[\s\S]+?\|\|/g, '');
+    const urls = [...new Set(bare.match(/https?:\/\/[^\s<>"']+/g) || [])].filter((u) => C.safeUrl(u) && /\.(png|jpe?g|gif|webp|mp4|webm)(\?|$)/i.test(u)).slice(0, 3);
+    if (!urls.length) return null;
+    return h('div', { class: 'link-previews' }, urls.map((u) => {
+      const m = C.media(u, '');
+      if (!m) return null;
+      m.addEventListener('error', () => m.remove());
+      if (m.tagName === 'IMG') m.addEventListener('click', () => viewImage(C.safeUrl(u)));
+      return m;
+    }));
   }
 
   // Если вы внизу чата, он остаётся внизу и когда картинки и видео догружаются позже текста.
@@ -1299,7 +1340,7 @@
       cont && msg.pinned ? h('span', { class: 'pin-mark', title: 'Закреплено' }, '📌') : null,
       shown.text ? richText(shown.text, shown.emojis) : null,
       shown.edited && !shown.text ? h('span', { class: 'edited', title: 'Изменено ' + fmtTime(shown.edited) }, '(изменено)') : null,
-      media, attachmentsNode(shown.files), reactionsRow(msg, channel)),
+      linkPreviews(shown.text), media, attachmentsNode(shown.files), reactionsRow(msg, channel)),
     tools);
     const textBox = node.querySelector('.body > .text');
     if (shown.edited && textBox) textBox.append(h('span', { class: 'edited', title: 'Изменено ' + fmtTime(shown.edited) }, '(изменено)'));
@@ -1455,7 +1496,7 @@
         { label: '🗑 Удалить у себя', danger: true, onclick: () => { const conv = S.dms[S.view.peer]; if (conv) { conv.list = conv.list.filter((x) => x.id !== msg.id); saveDms(); renderMain(); } } }]) },
     cont ? h('span', { class: 'cont-time' }, new Date(msg.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })) : avatarEl(who),
     h('div', { class: 'body' }, cont ? null : h('div', { class: 'head' }, nameEl(who, { cls: 'author' }), h('span', { class: 'time' }, fmtTime(msg.ts))),
-      msg.text ? richText(msg.text, msg.emojis) : null, media, attachmentsNode(msg.files)));
+      msg.text ? richText(msg.text, msg.emojis) : null, linkPreviews(msg.text), media, attachmentsNode(msg.files)));
   }
 
   function appendDm(msg, stick) {
@@ -1589,7 +1630,10 @@
     }
     const tiles = h('div', { class: 'tiles' });
     let watched = null;
+    const cams = new Map();
     for (const t of v.videoTiles()) {
+      // Камера показывается в плитке участника вместо аватара, экран — отдельной большой плиткой.
+      if (t.kind === 'camera') { cams.set(t.sid, t.stream); continue; }
       const who = S.conn.members.get(t.sid);
       if (!t.mine && !watched) watched = t.sid;
       const video = h('video', { autoplay: true, playsInline: true, muted: true });
@@ -1601,7 +1645,10 @@
     }
     setWatching(watched);
     for (const u of inside) {
-      const tile = h('div', { class: 'tile', dataset: { sid: u.sid } }, avatarEl(u),
+      const cam = cams.get(u.sid);
+      let face = avatarEl(u);
+      if (cam) { face = h('video', { autoplay: true, playsInline: true, muted: true, class: u.sid === S.conn.sid ? 'mirror' : '' }); face.srcObject = cam; }
+      const tile = h('div', { class: 'tile' + (cam ? ' cam' : ''), dataset: { sid: u.sid } }, face,
         h('div', { class: 'label' }, u.name + (u.sid === S.conn.sid ? ' (вы)' : ''), u.muted ? ' 🔇' : '', u.deaf ? ' 🙉' : ''),
         u.sid !== S.conn.sid ? h('span', { class: 'net' }) : null);
       if (u.sid !== S.conn.sid) {
@@ -1615,7 +1662,10 @@
       h('div', { class: 'voice-controls' },
         h('button', { class: 'btn' + (v.muted ? ' danger' : ''), onclick: () => v.setMuted(!v.muted) }, v.muted ? '🔇 Включить микрофон' : '🎙 Микрофон'),
         h('button', { class: 'btn' + (v.deafened ? ' danger' : ''), onclick: () => v.setDeafened(!v.deafened) }, v.deafened ? '🙉 Включить звук' : '🎧 Звук'),
-        h('button', { class: 'btn' + (sharing ? ' primary' : ''), onclick: () => (sharing ? v.stopScreen() : pickScreen()) }, sharing ? '⏹ Остановить показ' : '🖥 Показать экран'),
+        h('button', { class: 'btn' + (v.cameraStream ? ' primary' : ''), onclick: async () => {
+          try { if (v.cameraStream) v.stopCamera(); else await v.startCamera(); } catch (e) { C.toast('Камера не включилась: ' + e.message); }
+        } }, v.cameraStream ? '📷 Стоп камера' : '📷 Камера'),
+        h('button', { class: 'btn' + (sharing ? ' primary' : ''), title: sharing ? 'Остановить показ экрана' : 'Показать экран', onclick: () => (sharing ? v.stopScreen() : pickScreen()) }, sharing ? '⏹ Стоп экран' : '🖥 Экран'),
         ...C.plugins.collect('voiceControls', { channel: ch }),
         h('button', { class: 'btn danger', onclick: () => v.leave() }, '📞 Выйти')));
     updateSpeaking();
@@ -1913,12 +1963,13 @@
   }
 
   function sectionVoice(redraw) {
-    const mic = h('div'); const spk = h('div');
+    const mic = h('div'); const spk = h('div'); const cam = h('div');
     const fillDevices = async () => {
       const devs = await navigator.mediaDevices.enumerateDevices().catch(() => []);
       const opt = (kind) => [['default', 'По умолчанию'], ...devs.filter((d) => d.kind === kind && d.deviceId !== 'default').map((d) => [d.deviceId, d.label || 'Устройство'])];
       mic.replaceChildren(select(opt('audioinput'), S.settings.micId, (v) => { S.settings.micId = v; saveSettings(); }));
       spk.replaceChildren(select(opt('audiooutput'), S.settings.speakerId, (v) => { S.settings.speakerId = v; saveSettings(); }));
+      cam.replaceChildren(select(opt('videoinput'), S.settings.cameraId || 'default', (v) => { S.settings.cameraId = v; saveSettings(); }));
     };
     fillDevices();
     const profile = S.settings.voiceProfile;
@@ -1926,6 +1977,7 @@
     const radios = [['isolation', 'Изоляция голоса', 'Убирает шум и эхо, выравнивает громкость'], ['studio', 'Студия', 'Чистый звук без обработки'], ['custom', 'Пользовательский', 'Выберите обработку вручную']];
     return h('div', null, h('h2', null, 'Голос и видео'),
       h('div', { class: 'row wrap' }, h('div', { class: 'grow' }, field('Микрофон', mic)), h('div', { class: 'grow' }, field('Динамик', spk))),
+      field('Камера', cam),
       h('div', { class: 'row', style: { marginTop: '10px' } }, h('button', { class: 'btn', onclick: async () => {
         try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach((t) => t.stop()); await fillDevices(); } catch (e) { C.toast('Нет доступа к микрофону'); }
       } }, 'Разрешить доступ и обновить список')),
@@ -2383,6 +2435,69 @@
       field('STUN-сервер для голоса через интернет', stun, 'Пусто — голос работает в локальной сети и по общим сетям (VPN). Адрес STUN помогает соединиться через роутеры, но этот сервис увидит ваш IP.'));
   }
 
+  function sectionStartup(redraw) {
+    const s = S.settings;
+    const info = S.appInfo || {};
+    const last = store.get('lastHost', null);
+    return h('div', null, h('h2', null, 'Запуск и фон'),
+      switchRow('Крестик сворачивает в трей', s.closeToTray, (v) => { s.closeToTray = v; saveSettings(); native.appPrefs({ closeToTray: v }); },
+        'Комната, голос и уведомления продолжают работать. Выйти совсем — правый клик по значку в трее.'),
+      switchRow('Запускать вместе с Windows (свёрнутым в трей)', info.autostart, async (v) => { s.autostart = v; saveSettings(); S.appInfo = await native.appPrefs({ autostart: v }); redraw(); },
+        info.packaged ? '' : 'Работает только в собранной версии (corsa-mess.exe).'),
+      switchRow('Заходить в последнюю комнату при запуске', s.autoJoin, (v) => { s.autoJoin = v; saveSettings(); }),
+      switchRow('Сразу открывать свою комнату', s.autoHost, async (v) => {
+        s.autoHost = v; saveSettings();
+        if (v && S.hosting) await native.secretSet('hostPassword', S.hostPassword || '').catch(() => {});
+        if (!v) await native.secretSet('hostPassword', '').catch(() => {});
+        redraw();
+      }, last ? `При запуске приложение само поднимет «${last.name}» на порту ${last.port}${s.autoHost ? '. Пароль хранится зашифрованным средствами Windows' : ''}.` : 'Сначала один раз запустите свою комнату на главной.'),
+      h('div', { class: 'hint', style: { marginTop: '14px' } }, 'Вместе с автозапуском Windows получается свой маленький сервер: компьютер включён — комната открыта для друзей.'));
+  }
+
+  function sectionUpdates(redraw) {
+    const s = S.settings;
+    const u = S.update;
+    const status = h('div', { class: 'hint' });
+    const bar = h('div', { class: 'mm-bar' }, h('i', { class: 'open' }));
+    bar.style.display = 'none';
+    const check = async () => { status.textContent = 'Проверяю…'; await checkUpdates(true); redraw(); };
+    const parts = [h('h2', null, 'Обновления'),
+      h('div', { class: 'list-item' }, h('div', { class: 'info' }, h('div', null, `Сейчас: ${(S.appInfo && S.appInfo.version) || '?'}`),
+        h('div', { class: 'sub' }, u ? (u.newer ? `Доступна версия ${u.version}` : `Последняя версия ${u.version} — у вас она и стоит`) : 'Ещё не проверяли')),
+      h('button', { class: 'btn', onclick: check }, 'Проверить')),
+      switchRow('Проверять обновления при запуске', s.checkUpdates, (v) => { s.checkUpdates = v; saveSettings(); }, 'Приложение спрашивает GitHub о последнем релизе corsa-mess. GitHub при этом видит ваш IP, больше ничего не отправляется.'),
+      status];
+    if (u && u.newer) {
+      const go = h('button', { class: 'btn primary' }, u.sha256 ? `Скачать и установить ${u.version}` : 'Открыть страницу релиза');
+      go.onclick = async () => {
+        if (!u.sha256 || !u.packaged) { native.openReleasePage(u.page); return; }
+        go.disabled = true; bar.style.display = ''; status.textContent = 'Скачиваю…';
+        const off = native.onUpdateProgress((p) => { bar.firstChild.style.width = Math.round(p * 100) + '%'; status.textContent = `Скачано ${Math.round(p * 100)}%`; });
+        try {
+          await native.updateDownload(u);
+          off();
+          status.textContent = 'Скачано и проверено (контрольная сумма совпала). Приложение закроется, обновится и откроется само.';
+          go.textContent = 'Перезапустить и обновить';
+          go.disabled = false;
+          go.onclick = () => native.updateInstall().catch((e) => C.toast(cleanErr(e)));
+        } catch (e) { off(); go.disabled = false; status.className = 'hint bad'; status.textContent = cleanErr(e); }
+      };
+      parts.push(h('div', { class: 'update-notes' }, h('label', { class: 'lbl' }, `Что нового в ${u.version}`), h('div', { class: 'bio' }, inline(u.notes.replace(/SHA-256[^\n]*/gi, '').trim().slice(0, 1500), null, { emoji: 0 }))),
+        bar, h('div', { class: 'row', style: { marginTop: '10px' } }, go, h('button', { class: 'btn', onclick: () => native.openReleasePage(u.page) }, 'Страница релиза')),
+        !u.packaged ? h('div', { class: 'hint' }, 'Это запуск из исходников: обновите через git pull.') : !u.sha256 ? h('div', { class: 'hint' }, 'У этого релиза нет контрольной суммы, поэтому само обновление не ставится. Скачайте архив со страницы релиза.') : null);
+    }
+    return h('div', null, ...parts);
+  }
+
+  // Проверка новой версии. Тихо — без сообщений об ошибках (при запуске).
+  async function checkUpdates(loud) {
+    try {
+      S.update = await native.updateCheck();
+      if (S.update.newer) renderSide();
+      else if (loud) C.toast('У вас последняя версия');
+    } catch (e) { if (loud) C.toast('Не удалось проверить: ' + cleanErr(e)); }
+  }
+
   function sectionBackup() {
     const file = h('input', { type: 'file', accept: 'application/json', style: { display: 'none' } });
     file.addEventListener('change', async () => {
@@ -2528,8 +2643,8 @@
   function openSettings(start = 'profile') {
     const sections = [...(S.conn && S.conn.owner ? [['room', '🏠 Комната', sectionRoom]] : []), ['profile', '👤 Мой профиль', sectionProfile], ['look', '🎨 Внешний вид', sectionLook],
       ['voice', '🎙 Голос и видео', sectionVoice], ['stream', '🖥 Стриминг', sectionStream], ['stickers', '😀 Стикеры и эмодзи', sectionStickers], ['plugins', '🧩 Плагины', sectionPlugins],
-      ['activity', '🎮 Игры и активность', sectionActivity], ['notify', '🔔 Уведомления', sectionNotify], ['network', '📡 Сеть', sectionNetwork], ['security', '🔒 Безопасность', sectionSecurity],
-      ['backup', '💾 Резервная копия', sectionBackup]];
+      ['activity', '🎮 Игры и активность', sectionActivity], ['notify', '🔔 Уведомления', sectionNotify], ['network', '📡 Сеть', sectionNetwork], ['startup', '🚀 Запуск и фон', sectionStartup],
+      ['security', '🔒 Безопасность', sectionSecurity], ['updates', '⬆ Обновления', sectionUpdates], ['backup', '💾 Резервная копия', sectionBackup]];
     let current = sections.find((s) => s[0] === start) ? start : 'profile';
     const nav = h('div', { class: 'settings-nav' });
     const body = h('div', { class: 'settings-body' });
@@ -2581,6 +2696,9 @@
     await C.plugins.refresh();
     renderAll();
     autoMigrate();
+    S.appInfo = await native.appPrefs({ closeToTray: S.settings.closeToTray }).catch(() => ({}));
+    startupActions();
+    if (S.settings.checkUpdates) setTimeout(() => checkUpdates(false), 4000);
     native.onPresence((a) => { S.detected = a; updateActivity(); });
     native.onTls((ev) => {
       if (ev.kind === 'mismatch') {

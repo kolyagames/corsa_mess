@@ -500,6 +500,89 @@ async function testDmPins() {
   fs.unlinkSync(file);
 }
 
+// Роли: модераторов назначает владелец; модератор удаляет, закрепляет, исключает, пишет в каналах «только чтение»; обычный участник нет.
+async function testRoles() {
+  const srv = createRoomServer({ name: 'роли', port: 0, ownerUid: 'own' });
+  const port = await srv.start();
+  const join = async (uid, name) => { const ws = await connect(port); ws.send(JSON.stringify({ t: 'hello', uid, name })); return [ws, await ws.next((m) => m.t === 'welcome')]; };
+  const [a, wa] = await join('own', 'Хозяин');
+  const [b, wb] = await join('bob', 'Боб');
+  const [c, wc] = await join('cat', 'Кот');
+  assert.deepStrictEqual([wa.mod, wb.mod], [true, false], 'владелец модератор по определению, гость нет');
+  // Гость не назначит модератора, владелец назначит.
+  b.send(JSON.stringify({ t: 'mod-set', sid: wc.sid }));
+  assert.match((await b.next((m) => m.t === 'error')).text, /только владелец/);
+  a.send(JSON.stringify({ t: 'mod-set', sid: wb.sid }));
+  assert.strictEqual((await b.next((m) => m.t === 'role')).mod, true);
+  assert.strictEqual((await c.next((m) => m.t === 'member' && m.member.sid === wb.sid && m.member.mod)).member.mod, true, 'значок модератора виден всем');
+  // Канал «только чтение» и медленный режим.
+  a.send(JSON.stringify({ t: 'channel-set', op: 'edit', id: 'general', readonly: true }));
+  await c.next((m) => m.t === 'room' && m.room.channels.find((x) => x.id === 'general').readonly);
+  c.send(JSON.stringify({ t: 'msg', channel: 'general', text: 'гость пишет' }));
+  assert.strictEqual((await c.next((m) => m.t === 'error')).code, 'readonly');
+  b.send(JSON.stringify({ t: 'msg', channel: 'general', text: 'модератор пишет' }));
+  const mm = (await c.next((m) => m.t === 'msg' && m.msg.text === 'модератор пишет')).msg;
+  a.send(JSON.stringify({ t: 'channel-set', op: 'edit', id: 'general', readonly: false, slow: 2 }));
+  await c.next((m) => m.t === 'room' && m.room.channels.find((x) => x.id === 'general').slow === 2);
+  c.send(JSON.stringify({ t: 'msg', channel: 'general', text: 'первое' }));
+  await c.next((m) => m.t === 'msg' && m.msg.text === 'первое');
+  c.send(JSON.stringify({ t: 'msg', channel: 'general', text: 'второе сразу' }));
+  assert.strictEqual((await c.next((m) => m.t === 'error')).code, 'slow');
+  b.send(JSON.stringify({ t: 'msg', channel: 'general', text: 'модератору пауза не нужна 1' }));
+  b.send(JSON.stringify({ t: 'msg', channel: 'general', text: 'модератору пауза не нужна 2' }));
+  await c.next((m) => m.t === 'msg' && m.msg.text.endsWith('2'));
+  await sleep(2100);
+  c.send(JSON.stringify({ t: 'msg', channel: 'general', text: 'после паузы' }));
+  await c.next((m) => m.t === 'msg' && m.msg.text === 'после паузы');
+  // Модератор удаляет и закрепляет чужое, гость нет.
+  a.send(JSON.stringify({ t: 'channel-set', op: 'edit', id: 'general', slow: 0 }));
+  await c.next((m) => m.t === 'room' && m.room.channels.find((x) => x.id === 'general').slow === 0);
+  c.send(JSON.stringify({ t: 'delete', channel: 'general', id: mm.id }));
+  await assert.rejects(a.next((m) => m.t === 'delete', 300), /таймаут/, 'гость чужое не удалит');
+  c.send(JSON.stringify({ t: 'msg', channel: 'general', text: 'от кота' }));
+  const cat = (await a.next((m) => m.t === 'msg' && m.msg.text === 'от кота')).msg;
+  b.send(JSON.stringify({ t: 'pin', channel: 'general', id: cat.id }));
+  assert.strictEqual((await a.next((m) => m.t === 'pins')).pins.length, 1, 'модератор закрепляет чужое');
+  b.send(JSON.stringify({ t: 'delete', channel: 'general', id: cat.id }));
+  assert.strictEqual((await a.next((m) => m.t === 'delete')).id, cat.id, 'модератор удаляет чужое');
+  // Каналы и бан: только владелец. Модератор исключает гостя, но не владельца.
+  b.send(JSON.stringify({ t: 'channel-set', op: 'add', name: 'взлом', type: 'text' }));
+  assert.match((await b.next((m) => m.t === 'error')).text, /только владелец/);
+  b.send(JSON.stringify({ t: 'kick', sid: wc.sid, ban: true }));
+  assert.match((await b.next((m) => m.t === 'error')).text, /только владелец/, 'бан только у владельца');
+  b.send(JSON.stringify({ t: 'kick', sid: wa.sid }));
+  assert.match((await b.next((m) => m.t === 'error')).text, /нельзя/, 'владельца исключить нельзя');
+  b.send(JSON.stringify({ t: 'kick', sid: wc.sid }));
+  assert.strictEqual((await c.next((m) => m.t === 'error' && m.code === 'kicked')).code, 'kicked');
+  // Снятие роли и сохранение между запусками.
+  a.send(JSON.stringify({ t: 'mod-set', sid: wb.sid, on: false }));
+  assert.strictEqual((await b.next((m) => m.t === 'role')).mod, false);
+  a.close(); b.close(); c.close();
+  await srv.stop();
+  // Роль и настройки канала переживают перезапуск.
+  const file = path.join(os.tmpdir(), `corsa-roles-${Date.now()}.json`);
+  const s1 = createRoomServer({ name: 'роли', port: 0, ownerUid: 'own', historyFile: file });
+  const p1 = await s1.start();
+  const x = await connect(p1); x.send(JSON.stringify({ t: 'hello', uid: 'own', name: 'Хозяин' })); await x.next((m) => m.t === 'welcome');
+  const y = await connect(p1); y.send(JSON.stringify({ t: 'hello', uid: 'bob', name: 'Боб' })); const wy = await y.next((m) => m.t === 'welcome');
+  x.send(JSON.stringify({ t: 'mod-set', sid: wy.sid }));
+  await y.next((m) => m.t === 'role');
+  x.send(JSON.stringify({ t: 'channel-set', op: 'edit', id: 'memes', readonly: true, slow: 30 }));
+  await y.next((m) => m.t === 'room');
+  x.close(); y.close();
+  await s1.stop();
+  const s2 = createRoomServer({ name: 'роли', port: 0, ownerUid: 'own', historyFile: file });
+  const p2 = await s2.start();
+  const z = await connect(p2); z.send(JSON.stringify({ t: 'hello', uid: 'bob', name: 'Боб' }));
+  const wz = await z.next((m) => m.t === 'welcome');
+  assert.strictEqual(wz.mod, true, 'модератор остался модератором после перезапуска');
+  const memes = wz.room.channels.find((c2) => c2.id === 'memes');
+  assert.deepStrictEqual([memes.readonly, memes.slow], [true, 30]);
+  z.close();
+  await s2.stop();
+  fs.unlinkSync(file);
+}
+
 // Файлы: загрузка по ключу участника, тип по содержимому, выдача только участникам, Range, удаление с сообщением.
 async function testFiles() {
   const http = require('http');
@@ -773,6 +856,7 @@ async function testLan() {
   await testUpnp(); console.log('ok  UPnP на макете роутера');
   await testChat(); console.log('ok  каналы, ответы, правка, реакции, «печатает…», профиль');
   await testDmPins(); console.log('ok  личные сообщения и закрепы');
+  await testRoles(); console.log('ok  роли: модераторы, только чтение, медленный режим');
   await testFiles(); console.log('ok  файлы: ключ, тип по содержимому, Range, удаление');
   testUpdater(); console.log('ok  обновление: адрес и версия проверяются строго');
   await testBridge(); console.log('ok  интернет-мост: TLS, пароль, общий лимит, переподключение');

@@ -288,6 +288,7 @@
     client.on('delete', onDelete);
     client.on('react', onReact);
     client.on('typing', onTyping);
+    client.on('role', (mod) => { C.toast(mod ? 'Вас назначили модератором' : 'Вы больше не модератор'); renderAll(); });
     client.on('dm', onDm);
     client.on('pins', onPins);
     client.on('ping', () => renderPing());
@@ -903,7 +904,7 @@
     return h('div', { class: 'member' + (isOn(m) ? '' : ' offline') + plate, style: plateStyle(m), onclick: () => openProfileCard(m),
       oncontextmenu: (e) => contextMenu(e, memberMenu(m)) },
       avatarEl(m, { status: m.status }),
-      h('div', { class: 'meta' }, h('div', { class: 'nm' }, nameEl(m), ...C.plugins.collect('member', { member: m })),
+      h('div', { class: 'meta' }, h('div', { class: 'nm' }, nameEl(m), modMark(m), ...C.plugins.collect('member', { member: m })),
         m.activity ? h('div', { class: 'act' }, activityLine(m.activity)) : m.custom ? h('div', { class: 'act' }, m.custom) : null));
   }
 
@@ -913,9 +914,14 @@
       S.conn && m.sid !== S.conn.sid ? { label: '{{ic:mail}} Написать лично', onclick: () => openDm(m.uid) } : null,
       { label: '@ Упомянуть', onclick: () => { const f = document.querySelector('.composer .field'); if (f) { f.value += `@${m.name} `; f.focus(); } } },
       S.conn && m.sid !== S.conn.sid ? { label: S.blocked.has(m.uid) ? '{{ic:check}} Разблокировать у себя' : '{{ic:block}} Скрыть у себя', onclick: () => toggleBlock(m.uid, m.name) } : null,
-      S.conn && S.conn.owner && m.sid !== S.conn.sid ? { label: '{{ic:door}} Выгнать', danger: true, onclick: () => S.conn.send({ t: 'kick', sid: m.sid }) } : null,
+      S.conn && S.conn.owner && m.sid !== S.conn.sid && !m.host ? { label: m.mod ? '{{ic:shield}} Снять модератора' : '{{ic:shield}} Сделать модератором', onclick: () => S.conn.send({ t: 'mod-set', sid: m.sid, on: !m.mod }) } : null,
+      canKick(m) ? { label: '{{ic:door}} Выгнать', danger: true, onclick: () => S.conn.send({ t: 'kick', sid: m.sid }) } : null,
     ];
   }
+
+  // Исключить можно любого, кроме себя и владельца; модератор не может исключить другого модератора.
+  const canKick = (m) => !!(S.conn && S.conn.mod && m.sid !== S.conn.sid && !m.host && (S.conn.owner || !m.mod));
+  const modMark = (m) => (m.host ? h('span', { class: 'role-mark', title: 'Хозяин комнаты' }, C.icon('crown')) : m.mod ? h('span', { class: 'role-mark', title: 'Модератор' }, C.icon('shield')) : null);
 
   function renderRight() {
     const r = el.right;
@@ -1250,6 +1256,9 @@
     return { strip, button, upload, has: () => pending.length > 0 };
   }
 
+  // Пауза в секундах → коротко: 5 с, 1 мин, 1 ч.
+  const fmtSlow = (s) => (s < 60 ? `${s} с` : s < 3600 ? `${Math.round(s / 60)} мин` : `${Math.round(s / 3600)} ч`);
+
   // ---------- Чат ----------
   function reactionsRow(msg, channel) {
     const row = h('div', { class: 'reactions' });
@@ -1341,7 +1350,7 @@
     const author = nameEl(who, { cls: 'author' });
     author.addEventListener('click', () => { if (mem) openProfileCard(mem); });
     const mine = shown.uid === S.conn.meId;
-    const canDelete = mine || S.conn.owner;
+    const canDelete = mine || S.conn.mod;
     const tools = h('div', { class: 'msg-tools' },
       h('button', { title: 'Реакция', onclick: (e) => reactionPicker(e.currentTarget, channel, msg) }, '{{ic:smile}}'),
       h('button', { title: 'Ответить', onclick: () => setReply(msg) }, '{{ic:reply}}'),
@@ -1364,7 +1373,7 @@
     h('div', { class: 'body' },
       shown.reply ? h('div', { class: 'reply-ref', onclick: () => { const t = msgNode(shown.reply.id); if (t) { t.scrollIntoView({ block: 'center', behavior: 'smooth' }); t.classList.add('flash'); setTimeout(() => t.classList.remove('flash'), 1200); } } },
         h('span', { class: 'rr-arrow' }, '{{ic:reply-to}}'), h('b', null, shown.reply.name), ' ', plainText(shown.reply.text)) : null,
-      cont ? null : h('div', { class: 'head' }, author, h('span', { class: 'time' }, fmtTime(shown.ts)), msg.pinned ? h('span', { class: 'pin-mark', title: 'Закреплено' }, '{{ic:pin}}') : null),
+      cont ? null : h('div', { class: 'head' }, author, mem ? modMark(mem) : null, h('span', { class: 'time' }, fmtTime(shown.ts)), msg.pinned ? h('span', { class: 'pin-mark', title: 'Закреплено' }, '{{ic:pin}}') : null),
       cont && msg.pinned ? h('span', { class: 'pin-mark', title: 'Закреплено' }, '{{ic:pin}}') : null,
       shown.text ? richText(shown.text, shown.emojis) : null,
       shown.edited && !shown.text ? h('span', { class: 'edited', title: 'Изменено ' + fmtTime(shown.edited) }, '(изменено)') : null,
@@ -1409,7 +1418,9 @@
     keepBottom(messages);
     const list = S.conn.history.get(ch.id) || [];
     if (!list.length) messages.append(h('div', { class: 'empty' }, h('h3', null, `Это начало канала #${ch.name}`), h('div', null, ch.topic || 'Напишите первое сообщение.')));
-    const field = h('textarea', { class: 'field', rows: 1, placeholder: `Написать в #${ch.name}` });
+    // «Только чтение»: писать могут владелец и модераторы. Медленный режим: пауза между сообщениями (модераторов не касается).
+    const locked = !!ch.readonly && !S.conn.mod;
+    const field = h('textarea', { class: 'field', rows: 1, disabled: locked, placeholder: locked ? 'Писать здесь могут только модераторы' : ch.slow && !S.conn.mod ? `Медленный режим: раз в ${fmtSlow(ch.slow)}` : `Написать в #${ch.name}` });
     const att = S.conn.fileToken ? attachSupport(field, [messages, field]) : null;
     let sendBtn = null;
     let sending = false;
@@ -1451,12 +1462,15 @@
         composer.append(pop);
       } }, '{{ic:smile}}'),
       sendBtn);
+    if (locked) composer.querySelectorAll('button').forEach((b) => { b.disabled = true; });
     const search = h('input', { class: 'input head-search', placeholder: 'Поиск', title: 'Поиск по каналу (Ctrl+F)' });
     search.addEventListener('input', () => searchPopup(search, ch.id));
     search.addEventListener('keydown', (e) => { if (e.key === 'Escape') { search.value = ''; searchPopup(search, ch.id); field.focus(); } });
     const pinCount = (S.conn.pins.get(ch.id) || []).length;
     const head = h('div', { class: 'main-head' }, h('span', { class: 'title' }, '# ' + ch.name),
       ch.nsfw ? h('span', { class: 'nsfw-pill' }, '18+') : null,
+      ch.readonly ? h('span', { class: 'mode-pill', title: 'Писать могут только владелец и модераторы' }, '{{ic:lock}} Только чтение') : null,
+      ch.slow ? h('span', { class: 'mode-pill', title: 'Пауза между сообщениями одного участника' }, `Пауза ${fmtSlow(ch.slow)}`) : null,
       ch.topic ? h('span', { class: 'topic' }, ch.topic) : null, h('span', { class: 'spacer' }),
       h('button', { class: 'icon-btn pin-btn', title: 'Закреплённые сообщения', onclick: (e) => pinsPopup(e.currentTarget, ch.id) }, '{{ic:pin}}', h('span', { id: 'pin-count' }, pinCount || '')),
       h('div', { class: 'search-wrap' }, C.icon('search'), search),
@@ -1494,7 +1508,7 @@
   function pinsPopup(anchor, channel) {
     const list = [...(S.conn.pins.get(channel) || [])].reverse();
     headPopup(anchor, `Закреплено — ${list.length}`, list.map((p) => {
-      const can = p.uid === S.conn.meId || S.conn.owner;
+      const can = p.uid === S.conn.meId || S.conn.mod;
       return h('div', { class: 'hp-item', onclick: () => jumpTo(p.id) },
         h('div', { class: 'hp-head' }, h('b', null, p.name), h('span', { class: 'time' }, fmtTime(p.ts)),
           can ? h('button', { class: 'icon-btn', title: 'Открепить', onclick: (e) => { e.stopPropagation(); S.conn.send({ t: 'pin', channel, id: p.id, on: false }); e.currentTarget.closest('.hp-item').remove(); } }, '{{ic:close}}') : null),
@@ -1807,7 +1821,7 @@
     const links = (u.links || []).filter((l) => l && (l.label || l.url));
     const sinceLine = u.since ? 'В комнате с ' + new Date(u.since).toLocaleDateString('ru-RU') : '';
     const body = h('div', { class: 'profile-body' }, avatarEl(u, { status: u.status, cls: 'lg' }),
-      badges.length || u.host ? h('div', { class: 'badges' }, u.host ? h('span', { class: 'bdg', title: 'Хозяин комнаты' }, '{{ic:crown}}') : null,
+      badges.length || u.host || u.mod ? h('div', { class: 'badges' }, u.host ? h('span', { class: 'bdg', title: 'Хозяин комнаты' }, '{{ic:crown}}') : u.mod ? h('span', { class: 'bdg', title: 'Модератор' }, '{{ic:shield}}') : null,
         badges.map((b) => h('span', { class: 'bdg', title: BADGES[b][1] }, BADGES[b][0]))) : null,
       title,
       u.pronouns ? h('div', { class: 'pronouns' }, u.pronouns) : null,
@@ -1854,8 +1868,9 @@
         h('div', { class: 'row wrap' },
           h('button', { class: 'btn primary', onclick: () => { dlg.close(); openDm(u.uid); } }, '{{ic:mail}} Написать'),
           h('button', { class: 'btn', onclick: () => { dlg.close(); toggleBlock(u.uid, u.name); } }, blocked ? 'Разблокировать' : '{{ic:block}} Скрыть у себя'),
-          // Владелец комнаты может исключить или заблокировать участника на сервере.
-          S.conn.owner ? h('button', { class: 'btn', onclick: () => { S.conn.send({ t: 'kick', sid: u.sid }); dlg.close(); } }, 'Выгнать') : null,
+          // Владелец назначает модераторов и блокирует, модератор может исключить.
+          S.conn.owner && !u.host ? h('button', { class: 'btn', onclick: () => { S.conn.send({ t: 'mod-set', sid: u.sid, on: !u.mod }); dlg.close(); } }, u.mod ? '{{ic:shield}} Снять модератора' : '{{ic:shield}} Сделать модератором') : null,
+          canKick(u) ? h('button', { class: 'btn', onclick: () => { S.conn.send({ t: 'kick', sid: u.sid }); dlg.close(); } }, 'Выгнать') : null,
           S.conn.owner ? h('button', { class: 'btn danger', onclick: () => {
             if (confirm(`Заблокировать ${u.name} в комнате? Он не сможет войти снова.`)) { S.conn.send({ t: 'kick', sid: u.sid, ban: true }); dlg.close(); }
           } }, 'Бан') : null)));
@@ -2648,7 +2663,13 @@
       topic.addEventListener('change', () => send({ op: 'edit', id: c.id, topic: topic.value }));
       const nsfw = h('input', { type: 'checkbox', class: 'switch', checked: !!c.nsfw, title: '18+' });
       nsfw.addEventListener('change', () => send({ op: 'edit', id: c.id, nsfw: nsfw.checked }));
+      // Только чтение: писать могут владелец и модераторы. Пауза: сколько секунд ждать между сообщениями (модераторов не касается).
+      const ro = h('input', { type: 'checkbox', class: 'switch', checked: !!c.readonly, title: 'Только чтение' });
+      ro.addEventListener('change', () => send({ op: 'edit', id: c.id, readonly: ro.checked }));
+      const slow = select([[0, 'Без паузы'], [5, '5 с'], [10, '10 с'], [30, '30 с'], [60, '1 мин'], [300, '5 мин'], [900, '15 мин'], [3600, '1 ч'], [21600, '6 ч']], c.slow || 0, (v) => send({ op: 'edit', id: c.id, slow: Number(v) }));
+      slow.title = 'Медленный режим';
       return h('div', { class: 'ch-row' }, h('span', { class: 'ch-ic' }, c.type === 'voice' ? '{{ic:speaker}}' : '#'), h('div', { class: 'grow ch-fields' }, h('div', { class: 'row' }, nm, cat), topic),
+        c.type === 'text' ? h('div', { class: 'ch-modes' }, h('label', { class: 'ch-nsfw', title: 'Писать могут только владелец и модераторы' }, 'Чтение', ro), h('label', { class: 'ch-nsfw', title: 'Медленный режим' }, slow)) : null,
         c.type === 'text' ? h('label', { class: 'ch-nsfw', title: 'Канал 18+' }, '18+', nsfw) : null,
         h('button', { class: 'icon-btn', title: 'Выше', onclick: () => send({ op: 'move', id: c.id, dir: -1 }) }, '{{ic:arrow-up}}'),
         h('button', { class: 'icon-btn', title: 'Ниже', onclick: () => send({ op: 'move', id: c.id, dir: 1 }) }, '{{ic:arrow-down}}'),

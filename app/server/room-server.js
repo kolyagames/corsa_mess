@@ -94,7 +94,9 @@ function cleanChannel(c) {
   const type = c.type === 'voice' ? 'voice' : 'text';
   const name = str(c.name, 32).trim();
   if (!name) return null;
-  return { id: c.id, name, type, category: str(c.category, 32).trim() || (type === 'voice' ? 'Голосовые' : 'Общее'), topic: str(c.topic, 120), nsfw: !!c.nsfw };
+  // readonly: писать могут только владелец и модераторы. slow: пауза между сообщениями участника в секундах (0 — без паузы).
+  const slow = Number.isFinite(Number(c.slow)) ? Math.max(0, Math.min(21600, Math.round(Number(c.slow)))) : 0;
+  return { id: c.id, name, type, category: str(c.category, 32).trim() || (type === 'voice' ? 'Голосовые' : 'Общее'), topic: str(c.topic, 120), nsfw: !!c.nsfw, readonly: type === 'text' && !!c.readonly, slow: type === 'text' ? slow : 0 };
 }
 
 // password: пароль сети (необязательно). tls: { key, cert } — включает wss. limits: переопределение ограничений (для тестов).
@@ -116,6 +118,8 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
   let heartbeat = null;
   // Права владельца только у владельца, который подключён с этого же компьютера (адрес 127.0.0.1 или ::1).
   const isOwner = (m) => !!ownerUid && m.uid === ownerUid && /^(127\.|::1$)/.test(m.ws.ip || '');
+  // Модератор: владелец или назначенный им участник. Может удалять и закреплять чужие сообщения, исключать, писать в каналах «только чтение».
+  const isMod = (m) => isOwner(m) || mods.has(pubId(m.uid));
   let channels = DEFAULT_CHANNELS.map((c) => cleanChannel(c));
   let saved = null;
   if (historyFile) {
@@ -129,6 +133,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
   const history = new Map(channels.filter((c) => c.type === 'text').map((c) => [c.id, []]));
   const firstSeen = new Map(); // публичный id -> когда впервые зашёл
   const pins = new Map(); // канал -> закреплённые сообщения (копии, до 50)
+  const mods = new Set(); // публичные идентификаторы модераторов (назначает владелец)
   const members = new Map(); // sid -> member
   let wss = null;
   let saveTimer = null;
@@ -144,10 +149,11 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       room.banner = sanitizeImageUrl(saved.__room.banner);
       for (const [id, ts] of Object.entries(saved.__room.seen || {})) if (/^[0-9a-f]{16}$/.test(id) && Number.isFinite(ts)) firstSeen.set(id, ts);
       for (const [ch, list] of Object.entries(saved.__room.pins || {})) if (history.has(ch) && Array.isArray(list)) pins.set(ch, list.slice(-50));
+      for (const id of Array.isArray(saved.__room.mods) ? saved.__room.mods.slice(0, 50) : []) if (/^[0-9a-f]{16}$/.test(id)) mods.add(id);
     }
   }
 
-  const snapshot = () => JSON.stringify({ ...Object.fromEntries(history), __room: { banner: room.banner, channels, seen: Object.fromEntries([...firstSeen].slice(-500)), pins: Object.fromEntries(pins) } });
+  const snapshot = () => JSON.stringify({ ...Object.fromEntries(history), __room: { banner: room.banner, channels, seen: Object.fromEntries([...firstSeen].slice(-500)), pins: Object.fromEntries(pins), mods: [...mods] } });
   const roomInfo = () => ({ name: room.name, banner: room.banner, channels });
   const findMsg = (channel, id) => (history.get(channel) || []).find((x) => x.id === id);
 
@@ -227,7 +233,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       plate: m.plate, plateUrl: m.plateUrl, cardStyle: m.cardStyle, badges: m.badges, links: m.links,
       status: hidden ? 'offline' : m.status,
       activity: hidden ? null : m.activity,
-      since: firstSeen.get(pubId(m.uid)) || null, joinedAt: hidden ? null : m.joinedAt, host: isOwner(m),
+      since: firstSeen.get(pubId(m.uid)) || null, joinedAt: hidden ? null : m.joinedAt, host: isOwner(m), mod: mods.has(pubId(m.uid)),
       // Состояние в голосе: микрофон, звук, показ экрана и чей экран смотрит.
       muted: !!m.muted, deaf: !!m.deaf, screen: !!(m.voice && m.screen), camera: !!(m.voice && m.camera), watching: m.voice ? m.watching : null,
     };
@@ -283,7 +289,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
     const ch = channels[idx];
     if (msg.op === 'add') {
       if (channels.length >= MAX_CHANNELS) return false;
-      const c = cleanChannel({ id: 'c' + crypto.randomBytes(4).toString('hex'), name: msg.name, type: msg.type, category: msg.category, topic: msg.topic, nsfw: msg.nsfw });
+      const c = cleanChannel({ id: 'c' + crypto.randomBytes(4).toString('hex'), name: msg.name, type: msg.type, category: msg.category, topic: msg.topic, nsfw: msg.nsfw, readonly: msg.readonly, slow: msg.slow });
       if (!c) return false;
       channels.push(c);
       if (c.type === 'text') history.set(c.id, []);
@@ -291,7 +297,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
     }
     if (!ch) return false;
     if (msg.op === 'edit') {
-      const c = cleanChannel({ ...ch, ...pick(msg, ['name', 'category', 'topic', 'nsfw']), id: ch.id, type: ch.type });
+      const c = cleanChannel({ ...ch, ...pick(msg, ['name', 'category', 'topic', 'nsfw', 'readonly', 'slow']), id: ch.id, type: ch.type });
       if (!c) return false;
       channels[idx] = c;
       return true;
@@ -349,7 +355,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       cardStyle: 'default', badges: [], links: [],
       status: STATUSES.includes(msg.status) ? msg.status : 'online', activity: cleanActivity(msg.activity), voice: null,
       muted: false, deaf: false, screen: false, watching: null, joinedAt: Date.now(), typingAt: 0,
-      stamps: [], fileToken: crypto.randomBytes(16).toString('hex'), uploads: [],
+      stamps: [], slowAt: {}, fileToken: crypto.randomBytes(16).toString('hex'), uploads: [],
     };
     applyProfile(m, msg);
     const pid = pubId(uid);
@@ -357,7 +363,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
     members.set(m.sid, m);
     ws.sid = m.sid;
     send(ws, {
-      t: 'welcome', sid: m.sid, me: pid, owner: isOwner(m), fileToken: store ? m.fileToken : null,
+      t: 'welcome', sid: m.sid, me: pid, owner: isOwner(m), mod: isMod(m), fileToken: store ? m.fileToken : null,
       room: roomInfo(),
       members: [...members.values()].map(pub),
       history: Object.fromEntries(history), voice: voiceState(), pins: Object.fromEntries(pins),
@@ -388,11 +394,26 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         broadcast({ t: 'room', room: { name: room.name, banner: room.banner } });
         break;
       }
+      case 'mod-set': {
+        // Назначить или снять модератора может только владелец. Владельца и самого себя не трогаем.
+        if (!isOwner(m)) { send(ws, { t: 'error', text: 'Модераторов назначает только владелец' }); return; }
+        const target = members.get(msg.sid);
+        if (!target || target === m || isOwner(target)) return;
+        const id = pubId(target.uid);
+        if (msg.on === false) mods.delete(id);
+        else { if (mods.size >= 20) { send(ws, { t: 'error', text: 'Не больше 20 модераторов' }); return; } mods.add(id); }
+        saveHistory();
+        broadcast({ t: 'member', member: pub(target) });
+        send(target.ws, { t: 'role', mod: mods.has(id) });
+        break;
+      }
       case 'kick': {
-        // Исключить или заблокировать участника может только владелец.
-        if (!isOwner(m)) { send(ws, { t: 'error', text: 'Это может сделать только владелец' }); return; }
+        // Исключить может модератор (но не владельца и не другого модератора), заблокировать — только владелец.
+        if (!isMod(m)) { send(ws, { t: 'error', text: 'Это может сделать только владелец или модератор' }); return; }
+        if (msg.ban && !isOwner(m)) { send(ws, { t: 'error', text: 'Блокировать может только владелец' }); return; }
         const target = members.get(msg.sid);
         if (!target || target === m) return;
+        if (isOwner(target) || (!isOwner(m) && isMod(target))) { send(ws, { t: 'error', text: 'Этого участника исключить нельзя' }); return; }
         // Адрес блокируется, кроме локального: иначе владелец мог бы запереть сам себя.
         // Адрес блокируется, кроме локального и мостового: через мост адрес общий, и блокировка ударила бы по всем.
         if (msg.ban) { banned.uids.add(target.uid); if (!/^(127\.|::1$)/.test(target.ws.ip) && target.ws.ip !== BRIDGE_IP) banned.ips.add(target.ws.ip); }
@@ -412,6 +433,12 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         const ch = channels.find((c) => c.id === msg.channel && c.type === 'text');
         if (!ch) return;
         const now = Date.now();
+        // Канал «только чтение» и медленный режим касаются всех, кроме владельца и модераторов.
+        if (!isMod(m)) {
+          if (ch.readonly) { send(ws, { t: 'error', code: 'readonly', text: 'В этом канале писать могут только модераторы' }); return; }
+          const wait = ch.slow ? ch.slow * 1000 - (now - (m.slowAt[ch.id] || 0)) : 0;
+          if (wait > 0) { send(ws, { t: 'error', code: 'slow', text: `Медленный режим: подождите ещё ${Math.ceil(wait / 1000)} с` }); return; }
+        }
         m.stamps = m.stamps.filter((s) => now - s < RATE_WINDOW_MS);
         if (m.stamps.length >= RATE_MAX) { send(ws, { t: 'error', text: 'Слишком быстро' }); return; }
         m.stamps.push(now);
@@ -419,6 +446,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         const sticker = sanitizeImageUrl(msg.sticker);
         const files = cleanFiles(msg.files, m);
         if (!text && !sticker && !files.length) return;
+        m.slowAt[ch.id] = now;
         const out = {
           id: crypto.randomUUID().slice(0, 12), sid: m.sid, uid: pubId(m.uid), name: m.name, avatar: m.avatar,
           text, sticker, emojis: cleanEmojis(msg.emojis, text), ts: now,
@@ -452,7 +480,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         // Удалить можно своё сообщение, владелец удаляет любое.
         const list = history.get(msg.channel);
         const target = findMsg(msg.channel, msg.id);
-        if (!target || (target.uid !== pubId(m.uid) && !isOwner(m))) return;
+        if (!target || (target.uid !== pubId(m.uid) && !isMod(m))) return;
         list.splice(list.indexOf(target), 1);
         // Вложения удалённого сообщения стираются с диска хозяина.
         if (store) for (const f of target.files || []) store.remove(f.id);
@@ -493,7 +521,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       case 'pin': {
         // Закрепить может автор сообщения или владелец. Хранится копия: закреп переживёт старую историю.
         const target = findMsg(msg.channel, msg.id);
-        if (!target || (target.uid !== pubId(m.uid) && !isOwner(m))) return;
+        if (!target || (target.uid !== pubId(m.uid) && !isMod(m))) return;
         const list = pins.get(msg.channel) || [];
         const i = list.findIndex((x) => x.id === target.id);
         if (msg.on === false) { if (i < 0) return; list.splice(i, 1); target.pinned = null; }

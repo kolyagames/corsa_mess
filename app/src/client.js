@@ -91,6 +91,7 @@
           this.sid = m.sid;
           this.meId = m.me;
           this.owner = !!m.owner;
+          this.mod = !!m.mod; // модератор (владелец тоже)
           this.fileToken = m.fileToken || null;
           this.room = m.room;
           this.members = new Map(m.members.map((x) => [x.sid, x]));
@@ -142,6 +143,11 @@
         }
         case 'typing':
           this.emit('typing', m.channel, m.sid);
+          break;
+        case 'role':
+          // Владелец назначил или снял вас модератором.
+          this.mod = this.owner || !!m.mod;
+          this.emit('role', this.mod);
           break;
         case 'pins': {
           this.pins.set(m.channel, m.pins || []);

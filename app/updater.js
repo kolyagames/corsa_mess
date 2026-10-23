@@ -114,10 +114,21 @@ function install(zip, { dir = path.dirname(process.execPath), relaunch = process
   if (!fs.existsSync(zip)) throw new Error('Архив не найден');
   const script = path.join(os.tmpdir(), `corsa-mess-update-${Date.now()}.ps1`);
   fs.writeFileSync(script, '﻿' + SCRIPT, 'utf8');
-  const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script,
-    '-Zip', zip, '-Dir', dir, '-ProcId', String(process.pid), '-Exe', relaunch], { detached: true, stdio: 'ignore', windowsHide: true });
+  // Установщик запускается в два шага: наш PowerShell через Start-Process порождает отдельный, который не зависит от приложения.
+  // Прямой запуск не подходит: с detached: true PowerShell из Electron молча выходит, не выполнив скрипт, а без detached
+  // умирает вместе с приложением, и обновление «перезапускается и ничего не меняется» (проверено на 0.5.0–0.7.0).
+  const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', launcherCommand(script, zip, dir, process.pid, relaunch)],
+    { stdio: 'ignore', windowsHide: true });
   child.unref();
   return script;
 }
 
-module.exports = { check, download, install, cmpVer, assetUrl, releasePage, SCRIPT };
+// Команда для PowerShell: запустить скрытый установщик. Пути берутся в двойные кавычки (пробелы), а вся строка — в одинарные,
+// где одинарные кавычки удваиваются, поэтому ни пробелы, ни апострофы в путях команду не ломают.
+function launcherCommand(script, zip, dir, pid, relaunch) {
+  const q = (s) => '"' + String(s) + '"';
+  const list = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', q(script), '-Zip', q(zip), '-Dir', q(dir), '-ProcId', String(Number(pid)), '-Exe', q(relaunch)];
+  return 'Start-Process -WindowStyle Hidden -FilePath powershell.exe -ArgumentList ' + list.map((a) => "'" + a.replace(/'/g, "''") + "'").join(',');
+}
+
+module.exports = { check, download, install, cmpVer, assetUrl, releasePage, launcherCommand, SCRIPT };

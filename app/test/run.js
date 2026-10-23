@@ -565,6 +565,12 @@ function testUpdater() {
     'http://github.com/kolyagames/corsa_mess/', 'https://github.com.evil.com/kolyagames/corsa_mess/', 'https://github.com@evil.com/kolyagames/corsa_mess/',
     'https://evil.com/github.com/kolyagames/corsa_mess/', 'https://github.com:8443/kolyagames/corsa_mess/', 'https://github.com/kolyagames/corsa_mess_fake/', 'file:///C:/x', 'javascript:alert(1)', '', null,
   ]) assert.strictEqual(up.releasePage(bad), null, `страница ${JSON.stringify(bad)} должна отклоняться`);
+  // Команда запуска установщика: пути с пробелами и апострофами остаются целыми аргументами.
+  const cmd = up.launcherCommand("C:\\Temp\\u.ps1", "C:\\Users\\O'Neil\\Downloads\\a b.zip", 'C:\\Users\\Kolya\\Downloads\\corsa-mess (1)\\corsa-mess-win32-x64', 4242, 'C:\\App\\corsa-mess.exe');
+  assert.ok(cmd.startsWith('Start-Process -WindowStyle Hidden -FilePath powershell.exe -ArgumentList '));
+  assert.ok(cmd.includes('\'"C:\\Users\\O\'\'Neil\\Downloads\\a b.zip"\''), 'апостроф удвоен, путь в двойных кавычках');
+  assert.ok(cmd.includes("'-ProcId','4242'"), 'номер процесса — число');
+  assert.ok(!cmd.includes('detached'));
   assert.ok(up.cmpVer('0.10.0', '0.9.9') > 0 && up.cmpVer('0.5.0', '0.5.0') === 0 && up.cmpVer('0.4.9', '0.5.0') < 0);
 }
 

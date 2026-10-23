@@ -300,6 +300,8 @@
     store.set('rooms', S.rooms);
     const wanted = opts.view && opts.view.channel && client.room.channels.find((c) => c.id === opts.view.channel) ? opts.view : null;
     S.view = wanted || firstTextView();
+    // Файлы комнаты загружаются и показываются через главный процесс: сообщаем ему, куда мы подключены.
+    native.roomBind(client.fileToken ? { host: addr.host, port: addr.port, token: client.fileToken } : null).catch(() => {});
     S.pingTimer = setInterval(() => client.send({ t: 'ping', ts: performance.now() }), 5000);
     client.send({ t: 'ping', ts: performance.now() });
     renderAll();
@@ -410,7 +412,7 @@
     if (!keepReconnect) cancelReconnect();
     clearInterval(S.pingTimer);
     if (S.voice) { try { await S.voice.leave(); } catch (e) { /* ignore */ } }
-    if (S.conn) { const c = S.conn; S.conn = null; c.handlers = {}; c.close(); C.plugins.emit('disconnect'); }
+    if (S.conn) { const c = S.conn; S.conn = null; c.handlers = {}; c.close(); C.plugins.emit('disconnect'); native.roomBind(null).catch(() => {}); }
     S.voice = null;
     S.view = { type: 'home' };
     renderAll();
@@ -447,7 +449,7 @@
     updateTitle();
     if (!wanted || mode === 'none' || S.status === 'dnd') return;
     const ch = S.conn.room.channels.find((c) => c.id === channel);
-    const body = S.settings.notifyPreview ? (msg.text ? plainText(msg.text) : 'стикер') : 'Новое сообщение';
+    const body = S.settings.notifyPreview ? msgSummary(msg) : 'Новое сообщение';
     pushNotice(`${msg.name}${ch ? ' в #' + ch.name : ''}${mention ? ' — упоминание' : ''}`, body, 'ch:' + channel, viewing);
   }
 
@@ -493,7 +495,7 @@
     else if (!mine) S.dmUnread[peer] = (S.dmUnread[peer] || 0) + 1;
     if (!mine) {
       updateTitle();
-      if (S.settings.notifyDm && S.status !== 'dnd') pushNotice(`✉ ${msg.name}`, S.settings.notifyPreview ? (msg.text ? plainText(msg.text) : 'стикер') : 'Личное сообщение', 'dm:' + peer, viewing);
+      if (S.settings.notifyDm && S.status !== 'dnd') pushNotice(`✉ ${msg.name}`, S.settings.notifyPreview ? msgSummary(msg) : 'Личное сообщение', 'dm:' + peer, viewing);
     }
     C.plugins.emit('dm', msg);
     renderSide();
@@ -611,10 +613,10 @@
   }
 
   // ---------- Отправка ----------
-  function sendText(text, channel) {
+  function sendText(text, channel, files = []) {
     const t = text.trim();
-    if (!t) return;
-    if (t.startsWith('/')) {
+    if (!t && !files.length) return;
+    if (t.startsWith('/') && !files.length) {
       const [name, ...rest] = t.slice(1).split(/\s+/);
       const cmd = C.plugins.commands.get(name.toLowerCase());
       if (name.toLowerCase() === 'help') {
@@ -630,6 +632,7 @@
       }
     }
     const out = { t: 'msg', channel, text: t, emojis: C.stickerLib.usedEmojis(t) };
+    if (files.length) out.files = files.map((f) => f.id);
     if (S.replyTo) out.reply = S.replyTo.id;
     S.conn.send(out);
     setReply(null);
@@ -679,6 +682,9 @@
     return out;
   }
 
+  // Коротко о сообщении для уведомлений и поиска: текст, иначе вложения или стикер.
+  const msgSummary = (m) => (m.text ? plainText(m.text) : m.files && m.files.length ? (m.files[0].voice ? '🎙 Голосовое сообщение' : '📎 ' + m.files.map((f) => f.name).join(', ')) : 'стикер');
+
   // Текст без разметки: для цитат и подсказок. Спойлер остаётся скрытым.
   const plainText = (t) => String(t || '').replace(/\|\|[\s\S]+?\|\|/g, '▒▒▒').replace(/(\*\*|~~|`|\*)/g, '');
 
@@ -713,6 +719,8 @@
     openChannel: (id) => { S.view = { type: S.conn.room.channels.find((c) => c.id === id).type, channel: id }; renderAll(); },
     joinVoice: (id) => S.voice && S.voice.join(id).then(() => { S.view = { type: 'voice', channel: id }; renderAll(); }),
     connectRoom: (r) => connectTo({ host: r.host, port: r.port }),
+    uploadBlob: (blob, name, opts) => uploadBlob(blob, name, opts),
+    filesEnabled: () => !!(S.conn && S.conn.fileToken),
     modal, avatarEl, nameEl, copy, contextMenu, fmtTime, activityLine,
     media: C.media,
     notify: (user, line, sub) => showPresenceNote(user, 'custom', line, sub),
@@ -1080,6 +1088,99 @@
           u.sid !== S.conn.sid ? h('button', { class: 'icon-btn', title: 'Написать лично', onclick: (e) => { e.stopPropagation(); openDm(u.uid); } }, '✉') : null))));
   }
 
+  // ---------- Вложения ----------
+  // Файлы лежат у хозяина комнаты и показываются через corsa://roomfile/<id> (главный процесс проверяет сертификат комнаты).
+  const fileUrl = (f) => 'corsa://roomfile/' + f.id;
+  const fmtSize = (n) => (n < 1024 ? n + ' Б' : n < 1048576 ? Math.round(n / 1024) + ' КБ' : (n / 1048576).toFixed(1) + ' МБ');
+  const fmtDur = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+  const cleanErr = (e) => String((e && e.message) || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+
+  function viewImage(url) {
+    modal(h('div', { class: 'modal-body' }, h('img', { class: 'img-viewer', src: url, alt: '' })), { cls: 'viewer-modal' });
+  }
+
+  function attachmentsNode(files) {
+    if (!files || !files.length) return null;
+    const box = h('div', { class: 'atts' });
+    for (const f of files) {
+      const save = h('button', { class: 'att-save', title: 'Скачать', onclick: (e) => {
+        e.stopPropagation();
+        native.saveRoomFile({ id: f.id, name: f.name }).then((p) => { if (p) C.toast('Сохранено: ' + p); }).catch((err) => C.toast(cleanErr(err)));
+      } }, '⬇');
+      if (f.kind === 'image') {
+        const img = h('img', { src: fileUrl(f), loading: 'lazy', alt: f.name, onclick: () => viewImage(fileUrl(f)) });
+        img.addEventListener('error', () => img.replaceWith(h('div', { class: 'hint att-gone' }, `🖼 ${f.name} — недоступна (комната выключена или файл удалён)`)));
+        box.append(h('div', { class: 'att att-img' }, img, save));
+      } else if (f.kind === 'video') {
+        box.append(h('div', { class: 'att att-video' }, h('video', { src: fileUrl(f), controls: true, preload: 'metadata' }), save));
+      } else if (f.kind === 'audio') {
+        box.append(h('div', { class: 'att att-audio' + (f.voice ? ' voice' : '') }, h('span', { class: 'att-ic' }, f.voice ? '🎙' : '🎵'),
+          h('div', { class: 'grow' }, h('div', { class: 'att-name' }, f.voice ? 'Голосовое сообщение' + (f.dur ? ' · ' + fmtDur(f.dur) : '') : f.name),
+            h('audio', { src: fileUrl(f), controls: true, preload: 'metadata' })), save));
+      } else {
+        box.append(h('div', { class: 'att att-file' }, h('span', { class: 'att-ic' }, '📄'),
+          h('div', { class: 'grow' }, h('div', { class: 'att-name' }, f.name), h('div', { class: 'hint' }, fmtSize(f.size))), save));
+      }
+    }
+    return box;
+  }
+
+  // Если вы внизу чата, он остаётся внизу и когда картинки и видео догружаются позже текста.
+  function keepBottom(box) {
+    let stuck = true;
+    box.addEventListener('scroll', () => { stuck = box.scrollHeight - box.scrollTop - box.clientHeight < 80; });
+    const stick = () => { if (stuck) box.scrollTop = box.scrollHeight; };
+    box.addEventListener('load', stick, true);
+    box.addEventListener('loadedmetadata', stick, true);
+  }
+
+  // Загрузка одного файла на сервер комнаты. Плагины могут сжать картинку или скрыть имя файла.
+  async function uploadBlob(blob, name, { voice, dur } = {}) {
+    const r = await C.plugins.interceptAsync('upload', { blob, name: name || 'файл', type: blob.type || '', voice: !!voice, dur });
+    const data = new Uint8Array(await r.blob.arrayBuffer());
+    return native.uploadFile({ name: r.name, type: r.blob.type || r.type, data, voice: r.voice, dur: r.dur });
+  }
+
+  // Прикрепление к полю ввода: кнопка 📎, вставка Ctrl+V и перетаскивание. Файлы уходят вместе со следующим сообщением.
+  function attachSupport(field, areas) {
+    const pending = [];
+    const strip = h('div', { class: 'att-strip' });
+    const draw = () => {
+      strip.replaceChildren(...pending.map((p, i) => h('div', { class: 'att-chip' },
+        p.type.startsWith('image/') ? h('img', { src: p.url, alt: '' }) : h('span', { class: 'att-ic' }, p.type.startsWith('video/') ? '🎬' : p.type.startsWith('audio/') ? '🎵' : '📄'),
+        h('span', { class: 'att-cn' }, p.name), h('span', { class: 'hint' }, fmtSize(p.file.size)),
+        h('button', { class: 'icon-btn', title: 'Убрать', onclick: () => { URL.revokeObjectURL(p.url); pending.splice(i, 1); draw(); } }, '✕'))));
+      strip.classList.toggle('on', pending.length > 0);
+    };
+    const add = (files) => {
+      for (const f of files) {
+        if (pending.length >= 10) { C.toast('Не больше 10 файлов за раз'); break; }
+        if (f.size > 25 * 1024 * 1024) { C.toast(`${f.name}: больше 25 МБ`); continue; }
+        pending.push({ file: f, name: f.name || 'картинка.png', type: f.type || '', url: URL.createObjectURL(f) });
+      }
+      draw();
+      field.focus();
+    };
+    const input = h('input', { type: 'file', multiple: true, style: { display: 'none' } });
+    input.addEventListener('change', () => { add([...input.files]); input.value = ''; });
+    const button = h('button', { class: 'btn', title: 'Прикрепить файл. Можно и вставить (Ctrl+V) или перетащить в чат', onclick: () => input.click() }, '📎', input);
+    field.addEventListener('paste', (e) => { const fl = [...((e.clipboardData && e.clipboardData.files) || [])]; if (fl.length) { e.preventDefault(); add(fl); } });
+    for (const area of areas) {
+      area.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); area.classList.add('drop'); } });
+      area.addEventListener('dragleave', () => area.classList.remove('drop'));
+      area.addEventListener('drop', (e) => { if (!e.dataTransfer.files.length) return; e.preventDefault(); area.classList.remove('drop'); add([...e.dataTransfer.files]); });
+    }
+    const upload = async () => {
+      const out = [];
+      for (const p of pending) out.push(await uploadBlob(p.file, p.name));
+      for (const p of pending) URL.revokeObjectURL(p.url);
+      pending.length = 0;
+      draw();
+      return out;
+    };
+    return { strip, button, upload, has: () => pending.length > 0 };
+  }
+
   // ---------- Чат ----------
   function reactionsRow(msg, channel) {
     const row = h('div', { class: 'reactions' });
@@ -1198,7 +1299,7 @@
       cont && msg.pinned ? h('span', { class: 'pin-mark', title: 'Закреплено' }, '📌') : null,
       shown.text ? richText(shown.text, shown.emojis) : null,
       shown.edited && !shown.text ? h('span', { class: 'edited', title: 'Изменено ' + fmtTime(shown.edited) }, '(изменено)') : null,
-      media, reactionsRow(msg, channel)),
+      media, attachmentsNode(shown.files), reactionsRow(msg, channel)),
     tools);
     const textBox = node.querySelector('.body > .text');
     if (shown.edited && textBox) textBox.append(h('span', { class: 'edited', title: 'Изменено ' + fmtTime(shown.edited) }, '(изменено)'));
@@ -1236,10 +1337,25 @@
     const ch = S.conn.room.channels.find((c) => c.id === S.view.channel);
     if (!ch) { S.view = firstTextView(); renderMain(); return; }
     const messages = h('div', { class: 'messages' + (ch.nsfw ? ' nsfw' : ''), id: 'messages' });
+    keepBottom(messages);
     const list = S.conn.history.get(ch.id) || [];
     if (!list.length) messages.append(h('div', { class: 'empty' }, h('h3', null, `Это начало канала #${ch.name}`), h('div', null, ch.topic || 'Напишите первое сообщение.')));
     const field = h('textarea', { class: 'field', rows: 1, placeholder: `Написать в #${ch.name}` });
-    const submit = () => { sendText(field.value, ch.id); field.value = ''; field.style.height = ''; };
+    const att = S.conn.fileToken ? attachSupport(field, [messages, field]) : null;
+    let sendBtn = null;
+    let sending = false;
+    // С файлами: сначала загрузка на сервер комнаты, потом сообщение со ссылками на них.
+    const submit = async () => {
+      if (sending) return;
+      let files = [];
+      if (att && att.has()) {
+        sending = true; sendBtn.disabled = true; sendBtn.textContent = 'Загрузка…';
+        try { files = await att.upload(); } catch (e) { C.toast('Файл не отправлен: ' + cleanErr(e)); }
+        sending = false; sendBtn.disabled = false; sendBtn.textContent = 'Отправить';
+        if (!files.length && !field.value.trim()) return;
+      }
+      sendText(field.value, ch.id, files); field.value = ''; field.style.height = '';
+    };
     field.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); return; }
       if (e.key === 'Escape' && S.replyTo) { setReply(null); return; }
@@ -1256,14 +1372,16 @@
     });
     let pop = null;
     const closePop = () => { if (pop) { pop.remove(); pop = null; } };
+    sendBtn = h('button', { class: 'btn primary', onclick: submit }, 'Отправить');
     const composer = h('div', { class: 'composer' }, field,
-      ...C.plugins.collect('composer', { channel: ch, field }),
+      ...C.plugins.collect('composer', { channel: ch, field, files: !!att, sendFiles: (files) => S.conn.send({ t: 'msg', channel: ch.id, files: files.map((f) => f.id) }) }),
+      att ? att.button : null,
       h('button', { class: 'btn', title: 'Стикеры и эмодзи', onclick: () => {
         if (pop) { closePop(); return; }
         pop = stickerPopup(ch.id, field, closePop);
         composer.append(pop);
       } }, '😀'),
-      h('button', { class: 'btn primary', onclick: submit }, 'Отправить'));
+      sendBtn);
     const search = h('input', { class: 'input head-search', placeholder: '🔍 Поиск', title: 'Поиск по каналу (Ctrl+F)' });
     search.addEventListener('input', () => searchPopup(search, ch.id));
     search.addEventListener('keydown', (e) => { if (e.key === 'Escape') { search.value = ''; searchPopup(search, ch.id); field.focus(); } });
@@ -1274,7 +1392,7 @@
       h('button', { class: 'icon-btn pin-btn', title: 'Закреплённые сообщения', onclick: (e) => pinsPopup(e.currentTarget, ch.id) }, '📌', h('span', { id: 'pin-count' }, pinCount || '')),
       search,
       h('button', { class: 'icon-btn' + (S.settings.showMembers ? ' on' : ''), title: 'Список участников', onclick: () => { S.settings.showMembers = !S.settings.showMembers; saveSettings(); renderRight(); renderMain(); } }, '👥'));
-    m.replaceChildren(head, messages, h('div', { class: 'typing', id: 'typing' }), h('div', { class: 'reply-bar', id: 'reply-bar' }), composer);
+    m.replaceChildren(...[head, messages, h('div', { class: 'typing', id: 'typing' }), h('div', { class: 'reply-bar', id: 'reply-bar' }), att ? att.strip : null, composer].filter(Boolean));
     for (const msg of list) appendMessage(msg, false);
     messages.scrollTop = messages.scrollHeight;
     renderTyping();
@@ -1321,7 +1439,7 @@
     const found = (S.conn.history.get(channel) || []).filter((x) => !S.blocked.has(x.uid) && ((x.text || '').toLowerCase().includes(q) || (x.name || '').toLowerCase().includes(q))).slice(-30).reverse();
     headPopup(input, `Найдено: ${found.length}`, found.map((x) => h('div', { class: 'hp-item', onclick: () => jumpTo(x.id) },
       h('div', { class: 'hp-head' }, h('b', null, x.name), h('span', { class: 'time' }, fmtTime(x.ts))),
-      h('div', { class: 'hp-text' }, plainText(x.text || 'стикер').slice(0, 160)))), 'Ничего не нашлось в последних 200 сообщениях.');
+      h('div', { class: 'hp-text' }, msgSummary(x).slice(0, 160)))), 'Ничего не нашлось в последних 200 сообщениях.');
     input.focus();
   }
 
@@ -1337,7 +1455,7 @@
         { label: '🗑 Удалить у себя', danger: true, onclick: () => { const conv = S.dms[S.view.peer]; if (conv) { conv.list = conv.list.filter((x) => x.id !== msg.id); saveDms(); renderMain(); } } }]) },
     cont ? h('span', { class: 'cont-time' }, new Date(msg.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })) : avatarEl(who),
     h('div', { class: 'body' }, cont ? null : h('div', { class: 'head' }, nameEl(who, { cls: 'author' }), h('span', { class: 'time' }, fmtTime(msg.ts))),
-      msg.text ? richText(msg.text, msg.emojis) : null, media));
+      msg.text ? richText(msg.text, msg.emojis) : null, media, attachmentsNode(msg.files)));
   }
 
   function appendDm(msg, stick) {
@@ -1360,15 +1478,28 @@
     const mem = memberByPub(peer);
     const name = mem ? mem.name : conv.name;
     const messages = h('div', { class: 'messages', id: 'messages' });
+    keepBottom(messages);
     if (!conv.list.length) messages.append(h('div', { class: 'empty' }, h('h3', null, `Беседа с ${name}`), h('div', null, 'Сообщения видите только вы двое. Сервер их пересылает, но не хранит.')));
     const field = h('textarea', { class: 'field', rows: 1, placeholder: mem ? `Написать ${name}` : `${name} сейчас нет в комнате` , disabled: !mem });
     const sendDm = (extra) => { const target = memberByPub(peer); if (!target) { C.toast(`${name} сейчас нет в комнате`); return; } S.conn.send({ t: 'dm', to: target.sid, ...extra }); };
-    const submit = () => { const t = field.value.trim(); if (!t) return; sendDm({ text: t, emojis: C.stickerLib.usedEmojis(t) }); field.value = ''; field.style.height = ''; };
+    const att = mem && S.conn.fileToken ? attachSupport(field, [messages, field]) : null;
+    let busy = false;
+    const submit = async () => {
+      const t = field.value.trim();
+      if (busy || (!t && !(att && att.has()))) return;
+      let files = [];
+      if (att && att.has()) { busy = true; try { files = await att.upload(); } catch (e) { C.toast('Файл не отправлен: ' + cleanErr(e)); } busy = false; }
+      if (!t && !files.length) return;
+      sendDm({ text: t, emojis: C.stickerLib.usedEmojis(t), files: files.map((f) => f.id) });
+      field.value = ''; field.style.height = '';
+    };
     field.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
     field.addEventListener('input', () => { field.style.height = 'auto'; field.style.height = Math.min(140, field.scrollHeight) + 'px'; });
     let pop = null;
     const closePop = () => { if (pop) { pop.remove(); pop = null; } };
     const composer = h('div', { class: 'composer' }, field,
+      ...(mem ? C.plugins.collect('composer', { channel: null, dm: peer, field, files: !!att, sendFiles: (files) => sendDm({ files: files.map((f) => f.id) }) }) : []),
+      att ? att.button : null,
       h('button', { class: 'btn', title: 'Стикеры и эмодзи', disabled: !mem, onclick: () => {
         if (pop) { closePop(); return; }
         pop = stickerPopup(null, field, closePop, (url) => sendDm({ sticker: url }));
@@ -1378,7 +1509,7 @@
     const head = h('div', { class: 'main-head' }, mem ? avatarEl(mem, { status: mem.status }) : null, h('span', { class: 'title' }, '@ ' + name),
       h('span', { class: 'topic' }, mem ? statusLabel(mem) : 'не в комнате'), h('span', { class: 'spacer' }),
       mem ? h('button', { class: 'icon-btn', title: 'Профиль', onclick: () => openProfileCard(mem) }, '👤') : null);
-    m.replaceChildren(head, messages, composer);
+    m.replaceChildren(...[head, messages, att ? att.strip : null, composer].filter(Boolean));
     for (const msg of conv.list) appendDm(msg, false);
     messages.scrollTop = messages.scrollHeight;
     if (mem) field.focus();
@@ -1605,8 +1736,9 @@
       h('div', { class: 'hint' }, u.custom ? u.custom : statusLabel(u)),
       u.bio ? h('div', { class: 'bio' }, inline(u.bio, null, { emoji: 0 })) : null,
       links.length ? h('div', { class: 'links' }, links.map((l) => h('span', { class: 'plink', title: l.url ? 'Нажмите, чтобы скопировать' : '', onclick: () => l.url && copy(l.url) }, '🔗 ', l.label || l.url))) : null,
-      u.activity ? h('div', { class: 'contact-card', style: { marginTop: '14px' } }, h('div', { class: 'game' }, u.activity.kind === 'music' ? 'Слушает' : 'Играет'), h('b', null, u.activity.name),
-        h('div', { class: 'game' }, [u.activity.details, u.activity.state].filter(Boolean).join(' · ')), u.activity.kind !== 'music' ? h('div', { class: 'game' }, C.fmtElapsed(u.activity.startedAt)) : null) : null,
+      u.activity ? h('div', { class: 'contact-card act-card', style: { marginTop: '14px' } }, u.activity.image ? C.media(u.activity.image, 'act-img') : null,
+        h('div', { class: 'grow' }, h('div', { class: 'game' }, u.activity.kind === 'music' ? 'Слушает' : 'Играет'), h('b', null, u.activity.name),
+          h('div', { class: 'game' }, [u.activity.details, u.activity.state].filter(Boolean).join(' · ')), u.activity.kind !== 'music' && u.activity.startedAt ? h('div', { class: 'game' }, C.fmtElapsed(u.activity.startedAt)) : null)) : null,
       sinceLine ? h('div', { class: 'hint', style: { marginTop: '10px' } }, sinceLine) : null,
       ...(live ? C.plugins.collect('profile', { user: u }) : []));
     const cardFrame = u.cardFrame ? C.media(u.cardFrame, 'card-frame') : null;
@@ -2060,20 +2192,68 @@
   }
 
   // Перенос из BetterDiscord и Vencord: какие плагины у вас были включены и чем они стали здесь.
-  async function migrateDialog(redraw) {
-    let sources = [];
-    try { sources = await native.migrationScan(); } catch (e) { C.toast('Не удалось прочитать настройки'); return; }
+  function migrationPlan(sources) {
     const map = C.pluginOrigins || {};
     const rows = [];
     const toEnable = new Set();
+    const settings = []; // [{plugin, values}]
     for (const src of sources) {
       for (const name of src.enabled) {
         const t = map[name];
         if (!t) continue;
         if (t.plugin && !t.optional) toEnable.add(t.plugin);
+        if (t.settings && src.settings && src.settings[name]) { try { settings.push({ plugin: t.plugin, values: t.settings(src.settings[name]) || {} }); } catch (e) { /* чужой формат */ } }
         rows.push({ src: src.app, name, t });
       }
     }
+    return { rows, toEnable, settings };
+  }
+
+  // Значения из чужих настроек проверяются по схеме нашего плагина: тип, пределы, допустимые варианты.
+  function applyPluginSettings(id, values) {
+    const st = C.plugins.settingsOf(id);
+    if (!st) return 0;
+    let n = 0;
+    for (const f of st.schema) {
+      let v = values[f.key];
+      if (v === undefined || v === null) continue;
+      if (f.type === 'switch') { if (typeof v !== 'boolean') continue; }
+      else if (f.type === 'range') { if (!Number.isFinite(v)) continue; v = Math.max(f.min, Math.min(f.max, v)); }
+      else if (f.type === 'select') { if (!f.options.some(([o]) => o === v)) continue; }
+      else if (f.type === 'color') { if (!HEX.test(v)) continue; }
+      else { if (typeof v !== 'string' || !v) continue; v = v.slice(0, f.max || 200); }
+      st.set(f.key, v);
+      n++;
+    }
+    return n;
+  }
+
+  async function applyMigration(plan) {
+    for (const s of plan.settings) applyPluginSettings(s.plugin, s.values);
+    for (const id of plan.toEnable) await C.plugins.toggle(id, true);
+    // Плагины, которые уже работали, подхватывают перенесённые настройки.
+    for (const s of plan.settings) { const e = C.plugins.plugins.find((p) => p.info.id === s.plugin); if (e && e.enabled && e.def.onSettings) { try { e.def.onSettings(); } catch (err) { /* ignore */ } } }
+  }
+
+  // Первый запуск на компьютере, где есть BetterDiscord или Vencord: переносим включённые плагины и их настройки сами.
+  async function autoMigrate() {
+    if (store.get('migrated')) return;
+    store.set('migrated', Date.now());
+    let sources = [];
+    try { sources = await native.migrationScan(); } catch (e) { return; }
+    if (!sources.length) return;
+    const plan = migrationPlan(sources);
+    if (!plan.toEnable.size) return;
+    await applyMigration(plan);
+    renderAll();
+    C.toast(`Перенесены ваши плагины из ${[...new Set(sources.map((s) => s.app))].join(' и ')}: ${plan.toEnable.size}. Подробнее — Настройки → Плагины.`, 7000);
+  }
+
+  async function migrateDialog(redraw) {
+    let sources = [];
+    try { sources = await native.migrationScan(); } catch (e) { C.toast('Не удалось прочитать настройки'); return; }
+    const plan = migrationPlan(sources);
+    const { rows, toEnable } = plan;
     const seen = new Set();
     const uniq = rows.filter((r) => { const k = r.name; if (seen.has(k)) return false; seen.add(k); return true; });
     const icon = (t) => (t.optional ? '☑' : t.plugin ? '✅' : t.native ? '⭐' : '➖');
@@ -2089,9 +2269,9 @@
       h('div', { class: 'row', style: { justifyContent: 'flex-end', marginTop: '14px' } },
         h('button', { class: 'btn', onclick: () => dlg.close() }, 'Закрыть'),
         toEnable.size ? h('button', { class: 'btn primary', onclick: async () => {
-          for (const id of toEnable) await C.plugins.toggle(id, true);
-          dlg.close(); redraw(); C.toast(`Включено плагинов: ${toEnable.size}`);
-        } }, `Включить ${toEnable.size}`) : null)), { wide: false });
+          await applyMigration(plan);
+          dlg.close(); redraw(); C.toast(`Включено плагинов: ${toEnable.size}, перенесены настройки: ${plan.settings.length}`);
+        } }, `Включить ${toEnable.size} и перенести настройки`) : null)), { wide: false });
   }
 
   function sectionPlugins(redraw) {
@@ -2400,6 +2580,7 @@
     await C.themes.refresh();
     await C.plugins.refresh();
     renderAll();
+    autoMigrate();
     native.onPresence((a) => { S.detected = a; updateActivity(); });
     native.onTls((ev) => {
       if (ev.kind === 'mismatch') {

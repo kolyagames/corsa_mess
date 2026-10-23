@@ -89,6 +89,7 @@
           this.sid = m.sid;
           this.meId = m.me;
           this.owner = !!m.owner;
+          this.fileToken = m.fileToken || null;
           this.room = m.room;
           this.members = new Map(m.members.map((x) => [x.sid, x]));
           this.history = new Map(Object.entries(m.history));

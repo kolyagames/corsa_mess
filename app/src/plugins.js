@@ -196,6 +196,13 @@
     return v;
   };
 
+  // То же, но плагин может ответить не сразу (например, сжать картинку перед отправкой).
+  host.interceptAsync = async function interceptAsync(name, value, ...args) {
+    let v = value;
+    for (const item of host.intercepts.get(name) || []) { try { const r = await item.fn(v, ...args); if (r !== undefined) v = r; } catch (e) { console.warn('plugin', item.plugin, e); } }
+    return v;
+  };
+
   // Темы
   const themes = { list: [] };
   C.themes = themes;

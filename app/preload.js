@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('corsaNative', {
     return () => ipcRenderer.removeListener('media:change', fn);
   },
   migrationScan: () => ipcRenderer.invoke('migrate:scan'),
+  roomBind: (b) => ipcRenderer.invoke('room:bind', b),
+  uploadFile: (f) => ipcRenderer.invoke('room:upload', f),
+  saveRoomFile: (f) => ipcRenderer.invoke('room:save', f),
   setTitleBar: (c) => ipcRenderer.invoke('window:titlebar', c),
   notify: (n) => ipcRenderer.invoke('notify:show', n),
   onNotifyClick: (cb) => {

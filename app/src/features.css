@@ -37,6 +37,34 @@
 .friend-row:hover .icon-btn { opacity: 1; }
 .main-head .avatar { width: 26px; height: 26px; font-size: 11px; }
 
+.act-card { display: flex; gap: 12px; align-items: center; }
+.act-card .act-img { width: 64px; height: 64px; border-radius: var(--r); object-fit: cover; flex: none; }
+
+/* ---------- Вложения ---------- */
+.atts { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; align-items: flex-start; }
+.att { position: relative; border-radius: var(--r); overflow: hidden; max-width: min(460px, 100%); }
+.att-img img { display: block; max-width: 100%; max-height: 360px; border-radius: var(--r); cursor: zoom-in; background: var(--fill); }
+.att-video video { display: block; max-width: 100%; max-height: 360px; border-radius: var(--r); background: #000; }
+.att-audio, .att-file { display: flex; align-items: center; gap: 10px; background: var(--panel); padding: 8px 10px; min-width: 300px; box-shadow: inset 0 0 0 1px var(--line); }
+.att-audio audio { width: 100%; height: 34px; margin-top: 4px; }
+.att-audio.voice { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.att-ic { font-size: 22px; flex: none; }
+.att-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+.att-save { position: absolute; right: 6px; top: 6px; border: 0; border-radius: 6px; width: 28px; height: 26px; cursor: pointer; background: rgba(0, 0, 0, .6); color: #fff; opacity: 0; transition: opacity .15s; }
+.att:hover .att-save { opacity: 1; }
+.att-audio .att-save, .att-file .att-save { position: static; opacity: 1; background: var(--fill-hi); color: var(--text); flex: none; }
+.att-gone { padding: 8px 10px; background: var(--fill); border-radius: var(--r); }
+.att-strip { display: none; gap: 8px; padding: 0 16px 8px; overflow-x: auto; }
+.att-strip.on { display: flex; }
+.att-chip { display: flex; align-items: center; gap: 8px; background: var(--panel); border-radius: var(--r); padding: 6px 6px 6px 8px; box-shadow: inset 0 0 0 1px var(--line); flex: none; max-width: 260px; }
+.att-chip img { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; }
+.att-cn { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+.att-chip .icon-btn { width: 24px; height: 24px; font-size: 12px; }
+.messages.drop, .composer .field.drop { box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-dim); }
+.rec-btn.recording { background: #d4183d; color: #fff; animation: rec-pulse 1.2s ease-in-out infinite; font-variant-numeric: tabular-nums; }
+@keyframes rec-pulse { 50% { box-shadow: 0 0 0 4px rgba(212, 24, 61, .3); } }
+.viewer-modal { width: auto; max-width: 92vw; }
+
 /* ---------- Микрофон: уровень и порог, клавиши ---------- */
 .mic-meter { margin-top: 10px; }
 .mm-bar { position: relative; height: 10px; border-radius: 5px; background: var(--fill-hi); overflow: hidden; margin-bottom: 6px; }

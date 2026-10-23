@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, protocol, session, desktopCapturer, shell, dialog, Notification, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, session, desktopCapturer, shell, dialog, Notification, globalShortcut, net } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -49,6 +49,7 @@ let mapping = null;
 let renewTimer = null;
 let lanResponder = null;
 let media = null;
+let roomBinding = null; // комната, к которой сейчас подключён интерфейс: {host, port, token} для файлов
 let pins = {}; // закреплённые отпечатки серверов: адрес -> sha256
 
 // Все запросы из интерфейса принимаются только от нашей страницы в нашем окне.
@@ -89,8 +90,25 @@ function resolveSafe(root, rel) {
   return full.startsWith(base) ? full : null;
 }
 
+// Файл комнаты: corsa://roomfile/<id> → https://<комната>/f/<id>. Запрос идёт через сеть Chromium,
+// поэтому сертификат комнаты проверяется закреплённым отпечатком, как и само подключение.
+async function roomFile(request, url) {
+  const id = url.pathname.replace(/^\//, '');
+  if (!roomBinding || !/^[0-9a-f]{24}$/.test(id)) return new Response('not found', { status: 404 });
+  const headers = { 'X-Corsa-Token': roomBinding.token };
+  const range = request.headers.get('range');
+  if (range) headers.Range = range;
+  try {
+    const r = await net.fetch(`https://${roomBinding.host}:${roomBinding.port}/f/${id}`, { headers });
+    const out = { 'Cache-Control': 'no-store' };
+    for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) { const v = r.headers.get(k); if (v) out[k] = v; }
+    return new Response(r.body, { status: r.status, headers: out });
+  } catch (e) { return new Response('', { status: 502 }); }
+}
+
 function serveCorsa(request) {
   const url = new URL(request.url);
+  if (url.hostname === 'roomfile') return roomFile(request, url);
   const roots = {
     app: path.join(__dirname, 'src'),
     shared: path.join(__dirname, 'shared'),
@@ -173,7 +191,10 @@ function lanIps() {
   return res.sort((a, b) => rank[a.kind] - rank[b.kind]);
 }
 
-// Какие плагины включены в BetterDiscord и Vencord (Vesktop, Equicord): только имена, остальные настройки не читаются.
+// Какие плагины включены в BetterDiscord и Vencord (Vesktop, Equicord). Настройки читаются только у плагинов из списка ниже:
+// их значения переносятся в такие же плагины corsa-mess. Остальные настройки (например, списки друзей Discord) не читаются.
+const BD_SETTINGS = ['DiscordEffects'];
+const VENCORD_SETTINGS = ['CustomRPC', 'MessageLogger', 'BlurNSFW', 'NitroSoundpad', 'AnonymiseFileNames', 'VoiceMessages', 'CallTimer'];
 function migrationScan() {
   const out = [];
   const tryJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return null; } };
@@ -190,14 +211,18 @@ function migrationScan() {
       const enabled = Object.entries(j).filter(([, v]) => v === true).map(([k]) => String(k).slice(0, 64));
       const themesDirBd = path.join(dir, 'themes');
       const themes = fs.existsSync(themesDirBd) ? fs.readdirSync(themesDirBd).filter((f) => f.endsWith('.theme.css')).map((f) => f.replace(/\.theme\.css$/, '')) : [];
-      out.push({ app: 'BetterDiscord', where: dir, enabled, themes });
+      const settings = {};
+      for (const name of BD_SETTINGS) if (enabled.includes(name)) { const c = tryJson(path.join(dir, 'plugins', name + '.config.json')); if (c) settings[name] = c; }
+      out.push({ app: 'BetterDiscord', where: dir, enabled, themes, settings });
     }
   }
   for (const [label, dir] of [['Vesktop', 'vesktop'], ['Vencord', 'Vencord'], ['Equicord', 'Equicord'], ['Equibop', 'equibop']]) {
     const j = tryJson(path.join(appData, dir, 'settings', 'settings.json'));
     if (!j || !j.plugins || typeof j.plugins !== 'object') continue;
     const enabled = Object.entries(j.plugins).filter(([, v]) => v && v.enabled === true).map(([k]) => String(k).slice(0, 64));
-    out.push({ app: label, where: path.join(appData, dir), enabled, themes: [] });
+    const settings = {};
+    for (const name of VENCORD_SETTINGS) if (enabled.includes(name)) settings[name] = j.plugins[name];
+    out.push({ app: label, where: path.join(appData, dir), enabled, themes: [], settings });
   }
   return out;
 }
@@ -295,6 +320,7 @@ function setupIpc() {
     const srv = createRoomServer({
       name, port, password, tls: { key: hostCert.key, cert: hostCert.cert },
       ownerUid: String(opts && opts.ownerUid || '').slice(0, 64), historyFile: path.join(userDir(), 'rooms', `${port}.json`),
+      filesDir: path.join(userDir(), 'rooms', `${port}-files`),
     });
     const actual = await srv.start();
     roomServer = srv;
@@ -344,6 +370,38 @@ function setupIpc() {
   });
   ipcMain.handle('media:cmd', (e, cmd) => { if (media) media.command(String(cmd)); return true; });
   ipcMain.handle('migrate:scan', () => migrationScan());
+  // Файлы комнаты: интерфейс сообщает, к какой комнате он подключён, загрузка и сохранение идут отсюда.
+  ipcMain.handle('room:bind', (e, b) => {
+    const ok = b && /^([a-z0-9.-]{1,253}|\[[0-9a-f:]+\])$/i.test(String(b.host)) && Number.isInteger(b.port) && b.port > 0 && b.port < 65536 && /^[0-9a-f]{32}$/.test(String(b.token));
+    roomBinding = ok ? { host: String(b.host), port: b.port, token: String(b.token) } : null;
+    return !!roomBinding;
+  });
+  ipcMain.handle('room:upload', async (e, f) => {
+    if (!roomBinding) throw new Error('Нет подключения к комнате');
+    const data = f && f.data;
+    if (!(data instanceof Uint8Array) || !data.length) throw new Error('Пустой файл');
+    if (data.length > 25 * 1024 * 1024) throw new Error('Файл больше 25 МБ');
+    const r = await net.fetch(`https://${roomBinding.host}:${roomBinding.port}/upload`, {
+      method: 'POST', body: Buffer.from(data.buffer, data.byteOffset, data.length),
+      headers: {
+        'X-Corsa-Token': roomBinding.token, 'Content-Type': String(f.type || 'application/octet-stream').slice(0, 80),
+        'X-Corsa-Name': encodeURIComponent(String(f.name || 'файл').slice(0, 120)), 'X-Corsa-Voice': f.voice ? '1' : '0', 'X-Corsa-Duration': String(Number(f.dur) || 0),
+      },
+    });
+    const text = await r.text();
+    if (!r.ok) throw new Error(text || `ошибка ${r.status}`);
+    return JSON.parse(text);
+  });
+  ipcMain.handle('room:save', async (e, f) => {
+    if (!roomBinding || !/^[0-9a-f]{24}$/.test(String(f && f.id))) throw new Error('Файл недоступен');
+    const name = String(f.name || 'файл').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 120) || 'файл';
+    const r = await dialog.showSaveDialog(win, { defaultPath: name });
+    if (r.canceled || !r.filePath) return false;
+    const res = await net.fetch(`https://${roomBinding.host}:${roomBinding.port}/f/${f.id}`, { headers: { 'X-Corsa-Token': roomBinding.token } });
+    if (!res.ok) throw new Error('Файл удалён или недоступен');
+    fs.writeFileSync(r.filePath, Buffer.from(await res.arrayBuffer()));
+    return r.filePath;
+  });
   // Уведомление Windows о сообщении. По клику окно выходит вперёд и открывает нужный канал или беседу.
   const notes = new Set();
   ipcMain.handle('notify:show', (e, n) => {

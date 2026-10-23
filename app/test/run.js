@@ -500,6 +500,57 @@ async function testDmPins() {
   fs.unlinkSync(file);
 }
 
+// Файлы: загрузка по ключу участника, тип по содержимому, выдача только участникам, Range, удаление с сообщением.
+async function testFiles() {
+  const http = require('http');
+  const dir = path.join(os.tmpdir(), `corsa-files-${Date.now()}`);
+  const srv = createRoomServer({ name: 'файлы', port: 0, ownerUid: 'own', filesDir: dir, limits: { maxFile: 64 * 1024 } });
+  const port = await srv.start();
+  const req = (method, p, { token, body, headers = {} } = {}) => new Promise((resolve, reject) => {
+    const r = http.request({ host: '127.0.0.1', port, method, path: p, headers: { ...(token ? { 'X-Corsa-Token': token } : {}), ...headers } }, (res) => {
+      const chunks = []; res.on('data', (c) => chunks.push(c)); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+    });
+    r.on('error', reject);
+    r.end(body);
+  });
+  const join = async (uid, name) => { const ws = await connect(port); ws.send(JSON.stringify({ t: 'hello', uid, name })); return [ws, await ws.next((m) => m.t === 'welcome')]; };
+  const [a, wa] = await join('own', 'Хозяин');
+  const [b, wb] = await join('bob', 'Боб');
+  assert.match(wa.fileToken, /^[0-9a-f]{32}$/);
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(200, 7)]);
+  assert.strictEqual((await req('POST', '/upload', { body: png })).status, 403, 'без ключа загрузить нельзя');
+  const up = await req('POST', '/upload', { token: wa.fileToken, body: png, headers: { 'Content-Type': 'text/html', 'X-Corsa-Name': encodeURIComponent('кот.png') } });
+  assert.strictEqual(up.status, 200);
+  const meta = JSON.parse(up.body);
+  assert.deepStrictEqual({ type: meta.type, kind: meta.kind, name: meta.name }, { type: 'image/png', kind: 'image', name: 'кот.png' }, 'тип по содержимому, а не по заголовку');
+  const svg = await req('POST', '/upload', { token: wa.fileToken, body: Buffer.from('<svg onload="alert(1)"></svg>'), headers: { 'Content-Type': 'image/svg+xml' } });
+  assert.strictEqual(JSON.parse(svg.body).kind, 'file', 'SVG не показывается как картинка');
+  assert.strictEqual((await req('POST', '/upload', { token: wa.fileToken, body: Buffer.alloc(70 * 1024) })).status, 413, 'лимит размера');
+
+  assert.strictEqual((await req('GET', '/f/' + meta.id)).status, 403, 'без ключа скачать нельзя');
+  const got = await req('GET', '/f/' + meta.id, { token: wb.fileToken });
+  assert.strictEqual(got.status, 200);
+  assert.ok(got.body.equals(png));
+  assert.strictEqual(got.headers['x-content-type-options'], 'nosniff');
+  const part = await req('GET', '/f/' + meta.id, { token: wb.fileToken, headers: { Range: 'bytes=0-3' } });
+  assert.strictEqual(part.status, 206);
+  assert.strictEqual(part.body.length, 4);
+
+  // Сообщение с чужим файлом не принимается, со своим — да.
+  b.send(JSON.stringify({ t: 'msg', channel: 'general', text: 'украл', files: [meta.id] }));
+  const stolen = await a.next((m) => m.t === 'msg' && m.msg.text === 'украл');
+  assert.strictEqual(stolen.msg.files, undefined, 'чужой файл к сообщению не прикрепить');
+  a.send(JSON.stringify({ t: 'msg', channel: 'general', files: [meta.id] }));
+  const withFile = await b.next((m) => m.t === 'msg' && m.msg.files);
+  assert.strictEqual(withFile.msg.files[0].id, meta.id);
+  a.send(JSON.stringify({ t: 'delete', channel: 'general', id: withFile.msg.id }));
+  await b.next((m) => m.t === 'delete');
+  assert.strictEqual((await req('GET', '/f/' + meta.id, { token: wb.fileToken })).status, 404, 'файл удалён вместе с сообщением');
+  a.close(); b.close();
+  await srv.stop();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 // Поиск комнат в локальной сети: ответ приходит на запрос, сведения о комнате верные.
 async function testLan() {
   const lan = require('../server/lan');
@@ -523,5 +574,6 @@ async function testLan() {
   await testUpnp(); console.log('ok  UPnP на макете роутера');
   await testChat(); console.log('ok  каналы, ответы, правка, реакции, «печатает…», профиль');
   await testDmPins(); console.log('ok  личные сообщения и закрепы');
+  await testFiles(); console.log('ok  файлы: ключ, тип по содержимому, Range, удаление');
   await testLan(); console.log('ok  поиск комнат в локальной сети');
 })().catch((e) => { console.error('ПРОВАЛ:', e); process.exit(1); });

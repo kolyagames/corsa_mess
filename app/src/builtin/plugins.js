@@ -56,7 +56,7 @@
   });
 
   def({
-    id: 'no-typing-anim', name: 'Без анимации набора', category: 'Чат', origin: 'Vencord: NoTypingAnimation', defaultOn: false,
+    id: 'no-typing-anim', name: 'Без анимации набора', category: 'Чат', origin: 'Vencord: NoTypingAnimation', defaultOn: true,
     description: 'Точки «печатает…» не прыгают.',
     start(api) { document.body.classList.add('no-typing-anim'); api.cleanup(() => document.body.classList.remove('no-typing-anim')); },
   });
@@ -82,7 +82,7 @@
   });
 
   def({
-    id: 'message-logger', name: 'Журнал сообщений', category: 'Чат', origin: 'Vencord: MessageLogger', defaultOn: false,
+    id: 'message-logger', name: 'Журнал сообщений', category: 'Чат', origin: 'Vencord: MessageLogger', defaultOn: true,
     description: 'Удалённые сообщения остаются у вас зачёркнутыми, у изменённых видна прежняя версия. Хранится только до перезапуска.',
     settings: [
       { key: 'deleted', type: 'switch', label: 'Оставлять удалённые сообщения', default: true },
@@ -152,6 +152,107 @@
         if (!who) return null;
         const av = api.app.avatarEl(who, { cls: 'lg pet-anim' });
         return h('div', { class: 'row', style: { marginTop: '6px' } }, av, h('span', { style: { fontSize: '30px' } }, '🫳'));
+      });
+    },
+  });
+
+  def({
+    id: 'voice-messages', name: 'Голосовые сообщения', category: 'Чат', origin: 'Vencord: VoiceMessages', defaultOn: true,
+    description: 'Кнопка 🎤 у поля ввода: нажмите, говорите, нажмите ещё раз — отправится. Esc отменяет. До 2 минут, в каналах и в личных.',
+    settings: [
+      { key: 'echo', type: 'switch', label: 'Подавление эха', default: true },
+      { key: 'noise', type: 'switch', label: 'Шумоподавление', default: true },
+    ],
+    start(api) {
+      let rec = null;
+      const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+      async function startRec(b, ctx) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: api.settings.echo, noiseSuppression: api.settings.noise, autoGainControl: true } });
+        const mr = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 64000 });
+        const chunks = [];
+        const t0 = Date.now();
+        let send = true;
+        const state = { stop(doSend) { send = doSend; if (mr.state !== 'inactive') mr.stop(); } };
+        const placeholder = ctx.field.placeholder;
+        ctx.field.placeholder = 'Идёт запись… 🎤 — отправить, Esc — отменить';
+        const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); state.stop(false); } };
+        document.addEventListener('keydown', onKey, true);
+        const timer = setInterval(() => { const s = (Date.now() - t0) / 1000; b.textContent = '⏹ ' + clock(s); if (s >= 120) state.stop(true); }, 250);
+        b.classList.add('recording');
+        mr.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+        mr.onstop = async () => {
+          clearInterval(timer);
+          document.removeEventListener('keydown', onKey, true);
+          stream.getTracks().forEach((t) => t.stop());
+          b.classList.remove('recording'); b.textContent = '🎤';
+          ctx.field.placeholder = placeholder;
+          rec = null;
+          const dur = (Date.now() - t0) / 1000;
+          if (!send || dur < 0.7) return;
+          b.disabled = true;
+          try {
+            const f = await api.app.uploadBlob(new Blob(chunks, { type: 'audio/webm' }), 'голосовое.webm', { voice: true, dur });
+            ctx.sendFiles([f]);
+          } catch (e) { api.toast('Голосовое не отправлено: ' + String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); }
+          b.disabled = false;
+        };
+        mr.start(500);
+        return state;
+      }
+      api.decorate('composer', (ctx) => {
+        if (!ctx.files) return null;
+        const b = h('button', { class: 'btn rec-btn', title: 'Записать голосовое сообщение' }, '🎤');
+        b.onclick = async () => {
+          if (rec) { rec.stop(true); return; }
+          try { rec = await startRec(b, ctx); } catch (e) { api.toast('Нет доступа к микрофону'); }
+        };
+        return b;
+      });
+      api.cleanup(() => { if (rec) rec.stop(false); });
+    },
+  });
+
+  def({
+    id: 'media-compressor', name: 'Сжатие картинок', category: 'Чат', origin: 'BetterDiscord: VideoCompressor', defaultOn: true,
+    description: 'Большие картинки перед отправкой уменьшаются и пережимаются в WebP: у друзей грузятся быстрее. GIF не трогаются, видео уходят как есть (до 25 МБ).',
+    settings: [
+      { key: 'minMb', type: 'range', label: 'Сжимать картинки больше', min: 0.2, max: 10, step: 0.1, default: 1.5, unit: ' МБ' },
+      { key: 'side', type: 'range', label: 'Наибольшая сторона', min: 1024, max: 4096, step: 64, default: 2560, unit: ' px' },
+      { key: 'quality', type: 'range', label: 'Качество', min: 50, max: 95, default: 85, unit: '%' },
+    ],
+    start(api) {
+      api.intercept('upload', async (u) => {
+        if (u.voice || !/^image\/(png|jpeg|webp)$/.test(u.blob.type)) return u;
+        const s = api.settings;
+        const bmp = await createImageBitmap(u.blob);
+        const big = Math.max(bmp.width, bmp.height);
+        if (u.blob.size < s.minMb * 1048576 && big <= s.side) { bmp.close(); return u; }
+        const k = Math.min(1, s.side / big);
+        const c = new OffscreenCanvas(Math.max(1, Math.round(bmp.width * k)), Math.max(1, Math.round(bmp.height * k)));
+        c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+        bmp.close();
+        const out = await c.convertToBlob({ type: 'image/webp', quality: s.quality / 100 });
+        if (out.size >= u.blob.size) return u;
+        return { ...u, blob: out, type: 'image/webp', name: u.name.replace(/\.[^.]+$/, '') + '.webp' };
+      });
+    },
+  });
+
+  def({
+    id: 'anonymise-files', name: 'Скрывать имена файлов', category: 'Чат', origin: 'Vencord: AnonymiseFileNames', defaultOn: true,
+    description: 'Перед отправкой имя файла меняется на случайное: никто не увидит, как он назывался у вас (например, «Скриншот_паспорт_Иванов.png»).',
+    settings: [
+      { key: 'always', type: 'switch', label: 'Скрывать всегда', default: true },
+      { key: 'length', type: 'range', label: 'Длина случайного имени', min: 4, max: 16, default: 7 },
+    ],
+    start(api) {
+      api.intercept('upload', (u) => {
+        if (!api.settings.always || u.voice) return u;
+        const ext = ((/\.[a-z0-9]{1,5}$/i.exec(u.name) || [''])[0]).toLowerCase();
+        const abc = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let n = '';
+        for (const b of crypto.getRandomValues(new Uint8Array(api.settings.length))) n += abc[b % abc.length];
+        return { ...u, name: n + ext };
       });
     },
   });
@@ -266,7 +367,7 @@
 
   // ================= Уведомления =================
   def({
-    id: 'friend-watch', name: 'Слежка за друзьями', category: 'Уведомления', origin: 'BetterDiscord: FriendNotifications', defaultOn: false,
+    id: 'friend-watch', name: 'Слежка за друзьями', category: 'Уведомления', origin: 'BetterDiscord: FriendNotifications', defaultOn: true,
     description: 'Выберите людей кнопкой 👁 в их профиле: уведомление, когда они выходят из сети, меняют статус-фразу, заходят в голос, включают музыку или экран.',
     settings: [
       { key: 'all', type: 'switch', label: 'Следить за всеми в комнате', default: false },
@@ -454,7 +555,7 @@
   def({
     id: 'soundboard', name: 'Звуковая панель', category: 'Голос и стрим', origin: 'Vencord: NitroSoundpad', defaultOn: true,
     description: 'Кнопка «🔊 Звуки» в голосовом канале: звук слышат все в канале. Есть встроенные звуки, можно добавить свои файлы (mp3, ogg, wav до 3 МБ).',
-    settings: [{ key: 'volume', type: 'range', label: 'Громкость звуков', min: 5, max: 100, default: 60, unit: '%' }],
+    settings: [{ key: 'volume', type: 'range', label: 'Громкость звуков', min: 5, max: 100, default: 70, unit: '%' }],
     start(api) {
       const cache = new Map();
       let last = 0;
@@ -511,7 +612,7 @@
   def({
     id: 'nsfw-blur', name: 'Размытие 18+', category: 'Комнаты', origin: 'Vencord: BlurNSFW', defaultOn: true,
     description: 'Стикеры и картинки в каналах 18+ размыты, пока на них не навести мышь.',
-    settings: [{ key: 'blur', type: 'range', label: 'Сила размытия', min: 4, max: 40, default: 18, unit: ' px' }],
+    settings: [{ key: 'blur', type: 'range', label: 'Сила размытия', min: 4, max: 40, default: 10, unit: ' px' }],
     start(api) {
       api.addCss('.msg.nsfw-blur .sticker, .msg.nsfw-blur .text .emoji { filter: blur(var(--nsfw-blur, 18px)); transition: filter .2s; } .msg.nsfw-blur .sticker:hover, .msg.nsfw-blur .text .emoji:hover { filter: none; }');
       const apply = () => document.documentElement.style.setProperty('--nsfw-blur', api.settings.blur + 'px');
@@ -554,12 +655,13 @@
   });
 
   def({
-    id: 'custom-activity', name: 'Своя активность', category: 'Активность и музыка', origin: 'Vencord: CustomRPC', defaultOn: false,
-    description: 'Задайте свой статус «Играет в…» вручную. Пока плагин включён, он важнее найденной игры.',
+    id: 'custom-activity', name: 'Своя активность', category: 'Активность и музыка', origin: 'Vencord: CustomRPC', defaultOn: true,
+    description: 'Задайте свой статус «Играет в…» вручную. Пока название пустое, плагин ничего не меняет; заполненное важнее найденной игры.',
     settings: [
       { key: 'name', type: 'text', label: 'Название', default: '', max: 64, placeholder: 'Например: Пишу мессенджер' },
       { key: 'details', type: 'text', label: 'Подробности', default: '', max: 128 },
       { key: 'state', type: 'text', label: 'Состояние', default: '', max: 128 },
+      { key: 'image', type: 'text', label: 'Картинка (ссылка)', default: '', max: 300, placeholder: 'https://i.imgur.com/…', hint: 'Только с проверенных сайтов, как аватар.' },
       { key: 'kind', type: 'select', label: 'Вид', default: 'game', options: [['game', '🎮 Играет'], ['music', '🎵 Слушает']] },
       { key: 'timer', type: 'switch', label: 'Показывать время с начала', default: true },
     ],
@@ -567,7 +669,7 @@
       const started = Date.now();
       const apply = () => {
         const s = api.settings;
-        api.app.setActivityOverride(s.name ? { name: s.name, details: s.details, state: s.state, kind: s.kind, startedAt: s.timer ? started : null } : null);
+        api.app.setActivityOverride(s.name ? { name: s.name, details: s.details, state: s.state, image: C.safeUrl(s.image) || null, kind: s.kind, startedAt: s.timer ? started : null } : null);
       };
       apply();
       this.onSettings = apply;
@@ -576,7 +678,7 @@
   });
 
   def({
-    id: 'now-playing', name: 'Сейчас играет', category: 'Активность и музыка', origin: 'BetterDiscord: SpotifyEnhance', defaultOn: false,
+    id: 'now-playing', name: 'Сейчас играет', category: 'Активность и музыка', origin: 'BetterDiscord: SpotifyEnhance', defaultOn: true,
     description: 'Трек из Spotify, Яндекс Музыки, браузера и других плееров: панель с кнопками над вашим именем, «Слушает…» у друзей, кнопка «поделиться треком».',
     settings: [
       { key: 'share', type: 'switch', label: 'Показывать друзьям, что я слушаю', default: true },
@@ -640,7 +742,7 @@
 
   // ================= Оформление =================
   def({
-    id: 'screen-effects', name: 'Эффекты на экране', category: 'Оформление', origin: 'BetterDiscord: DiscordEffects', defaultOn: false,
+    id: 'screen-effects', name: 'Эффекты на экране', category: 'Оформление', origin: 'BetterDiscord: DiscordEffects', defaultOn: true,
     description: 'Падающие звёзды, снег, дождь и другие частицы поверх или позади интерфейса.',
     settings: [
       { key: 'effect', type: 'select', label: 'Эффект', default: 'shooting', options: [['shooting', 'Падающие звёзды'], ['snow', 'Снег'], ['rain', 'Дождь'], ['sparkles', 'Искры'], ['hearts', 'Сердца'], ['embers', 'Угольки'], ['stars', 'Звёздное небо'], ['sakura', 'Сакура'], ['bubbles', 'Пузыри']] },
@@ -648,7 +750,7 @@
       { key: 'count', type: 'range', label: 'Количество', min: 5, max: 160, default: 40 },
       { key: 'speed', type: 'range', label: 'Скорость', min: 0.2, max: 3, step: 0.1, default: 1, unit: '×' },
       { key: 'angle', type: 'range', label: 'Угол (для звёзд)', min: 0, max: 360, default: 332, unit: '°' },
-      { key: 'opacity', type: 'range', label: 'Прозрачность', min: 10, max: 100, default: 60, unit: '%' },
+      { key: 'opacity', type: 'range', label: 'Прозрачность', min: 10, max: 100, default: 50, unit: '%' },
       { key: 'color', type: 'color', label: 'Цвет', default: '#ffffff' },
     ],
     start(api) {
@@ -671,16 +773,31 @@
   const P = (plugin) => ({ plugin });
   const N = (native) => ({ native });
   const X = (none) => ({ none });
+  // Плагин и перевод его настроек из BetterDiscord или Vencord (значения проверяются по схеме настроек при переносе).
+  const PS = (plugin, settings) => ({ plugin, settings });
+  const num = (v) => (Number.isFinite(v) ? v : undefined);
   C.pluginOrigins = {
     // BetterDiscord
-    BetterNsfwTag: P('nsfw-tag'), DiscordEffects: P('screen-effects'), FriendNotifications: P('friend-watch'), GameActivityToggle: P('activity-toggle'),
+    DiscordEffects: PS('screen-effects', (c) => {
+      const s = (c && c.settings) || {};
+      const effect = { shootingStars: 'shooting', snowflakes: 'snow', rain: 'rain' }[s.effect];
+      const rain = effect === 'rain';
+      const op = num(rain ? s.rainopacity : s.flakeopacity);
+      return { effect, layer: /back|behind/i.test(s.layer || '') ? 'behind' : 'front', angle: num(s.angle), color: rain ? s.raincolor : s.flakecolor, opacity: op == null ? undefined : Math.round(op * 100) };
+    }),
+    BetterNsfwTag: P('nsfw-tag'), FriendNotifications: P('friend-watch'), GameActivityToggle: P('activity-toggle'),
     InvisibleTyping: P('invisible-typing'), LastMessageDate: P('last-message'), MemberCounter: P('member-counter'), MusicTheme: P('music-theme'),
     ServerCounter: P('room-counter'), ServerDetails: P('room-details'), ShowSpectators: P('spectators'), SpotifyEnhance: P('now-playing'), VoiceActivity: P('voice-activity'),
     PhantomProfile: N('рамки, таблички, эффекты профиля, значки и стили имени, причём их видят все'),
-    VideoCompressor: X('не нужен: в corsa-mess нет загрузки файлов, картинки идут ссылками'), BDFDB: X('служебная библиотека BetterDiscord, не нужна'),
+    VideoCompressor: P('media-compressor'), BDFDB: X('служебная библиотека BetterDiscord, не нужна'),
     // Vencord
-    BlurNSFW: P('nsfw-blur'), CallTimer: P('call-timer'), CustomRPC: P('custom-activity'), ExpressionCloner: P('expression-cloner'), MemberCount: P('member-counter'),
-    MessageLogger: P('message-logger'), NoTypingAnimation: P('no-typing-anim'), RevealAllSpoilers: P('reveal-spoilers'), TypingIndicator: P('typing-indicator'),
+    BlurNSFW: PS('nsfw-blur', (c) => ({ blur: num(c.blurAmount) })),
+    CustomRPC: PS('custom-activity', (c) => ({ name: c.appName, details: c.details, state: c.state, image: C.safeUrl(c.imageBig) || undefined, kind: c.type === 2 ? 'music' : 'game' })),
+    MessageLogger: PS('message-logger', (c) => ({ deleted: c.logDeletes, edits: c.logEdits, own: typeof c.ignoreSelf === 'boolean' ? !c.ignoreSelf : undefined })),
+    AnonymiseFileNames: PS('anonymise-files', (c) => ({ always: c.anonymiseByDefault, length: num(c.randomisedLength) })),
+    VoiceMessages: P('voice-messages'), VoiceDownload: N('кнопка «Скачать» у каждого файла и голосового сообщения'),
+    CallTimer: P('call-timer'), ExpressionCloner: P('expression-cloner'), MemberCount: P('member-counter'),
+    NoTypingAnimation: P('no-typing-anim'), RevealAllSpoilers: P('reveal-spoilers'), TypingIndicator: P('typing-indicator'),
     UserVoiceShow: P('voice-activity'), ViewIcons: P('view-icons'), WhoReacted: P('who-reacted'), petpet: P('petpet'), WebKeybinds: P('hotkeys'),
     // Сам не включается: прятал бы всё оформление профилей, ради которого и сделан кастом.
     NoProfileThemes: { plugin: 'plain-profiles', optional: true },
@@ -689,8 +806,7 @@
     BetterFolders: N('закреплённые комнаты отделяются сверху'), NoTrack: N('приложение не шлёт никакой статистики'), NoNitroAds: N('рекламы нет'),
     WebContextMenus: N('контекстные меню по правому клику'), WebScreenShareFixes: N('показ экрана до 4K и 120 кадров'), DisableDeepLinks: N('ссылки не открываются, а копируются'),
     CrashHandler: N('ошибки плагинов не роняют приложение'), Settings: N('свои настройки'), SupportHelper: X('служебный модуль Vencord'), FixDiscordCss: X('чинит стили Discord, здесь не нужен'),
-    NitroSoundpad: P('soundboard'),Translate: X('не перенесён: текст сообщений уходил бы стороннему переводчику'),
-    VoiceMessages: X('голосовых сообщений пока нет (нет загрузки файлов)'), VoiceDownload: X('голосовых сообщений пока нет'), AnonymiseFileNames: X('файлов нет, только ссылки'),
+    NitroSoundpad: PS('soundboard', (c) => ({ volume: num(c.volume) })), Translate: X('не перенесён: текст сообщений уходил бы стороннему переводчику'),
     iLoveSpam: X('спам-фильтра Discord здесь нет'), PermissionsViewer: X('ролей пока нет, права только у владельца'), PlainFolderIcon: X('папок нет, есть закреп'),
     YoutubeAdblock: X('встроенного YouTube нет'), NewsBanner: X('баннеров новостей Discord нет'), NoPendingCount: X('заявок в друзья нет'),
     AccountPanelServerProfile: X('профиль один для всех комнат'),

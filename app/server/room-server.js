@@ -1,9 +1,14 @@
 // Сервер комнаты. Запускается в главном процессе приложения по кнопке «Запустить сервер».
 const fs = require('fs');
 const crypto = require('crypto');
+const http = require('http');
 const https = require('https');
 const { WebSocketServer } = require('ws');
 const { sanitizeImageUrl } = require('../shared/allowlist');
+const { createFileStore, serveFile } = require('./files');
+
+const UPLOAD_WINDOW_MS = 10 * 60 * 1000;
+const UPLOAD_PER_WINDOW = 150 * 1024 * 1024; // не больше 150 МБ за 10 минут от одного участника
 
 const HISTORY_LIMIT = 200;
 const MAX_TEXT = 2000;
@@ -92,8 +97,10 @@ function cleanChannel(c) {
 }
 
 // password: пароль сети (необязательно). tls: { key, cert } — включает wss. limits: переопределение ограничений (для тестов).
-function createRoomServer({ name, port, historyFile, ownerUid = '', password = '', tls = null, limits = {}, log = () => {} }) {
+// filesDir: папка для файлов комнаты (без неё отправка файлов выключена).
+function createRoomServer({ name, port, historyFile, ownerUid = '', password = '', tls = null, limits = {}, log = () => {}, filesDir = null }) {
   const L = { ...LIMITS, ...limits };
+  const store = filesDir ? createFileStore({ dir: filesDir, maxFile: L.maxFile, maxTotal: L.maxTotal }) : null;
   const room = { name: str(name, 40) || 'Комната', banner: null };
   // Пароль сразу превращаем в ключ и забываем. Клиент доказывает знание пароля ответом на случайный вызов,
   // сам пароль по сети не передаётся.
@@ -102,7 +109,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
   const banned = { uids: new Set(), ips: new Set() };
   const fails = new Map(); // ip -> { n, until }
   const perIp = new Map(); // ip -> число соединений
-  let httpsServer = null;
+  let httpServer = null;
   let heartbeat = null;
   // Права владельца только у владельца, который подключён с этого же компьютера (адрес 127.0.0.1 или ::1).
   const isOwner = (m) => !!ownerUid && m.uid === ownerUid && /^(127\.|::1$)/.test(m.ws.ip || '');
@@ -140,6 +147,63 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
   const snapshot = () => JSON.stringify({ ...Object.fromEntries(history), __room: { banner: room.banner, channels, seen: Object.fromEntries([...firstSeen].slice(-500)), pins: Object.fromEntries(pins) } });
   const roomInfo = () => ({ name: room.name, banner: room.banner, channels });
   const findMsg = (channel, id) => (history.get(channel) || []).find((x) => x.id === id);
+
+  // Вложения сообщения: только свои уже загруженные файлы, сведения о них берутся из хранилища.
+  function cleanFiles(list, m) {
+    if (!store || !Array.isArray(list)) return [];
+    const out = [];
+    for (const f of list.slice(0, 10)) {
+      const meta = store.get(typeof f === 'string' ? f : f && f.id);
+      if (!meta || meta.uid !== pubId(m.uid) || out.some((x) => x.id === meta.id)) continue;
+      out.push({ id: meta.id, name: meta.name, type: meta.type, kind: meta.kind, size: meta.size, voice: meta.voice || undefined, dur: meta.dur });
+    }
+    return out;
+  }
+
+  // HTTP на том же порту, что и комната: загрузка (POST /upload) и выдача (GET /f/<id>) файлов.
+  // Пускает только участников, подключённых сейчас, по их личному ключу.
+  function handleHttp(req, res) {
+    const fail = (code, text) => { res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(text || ''); };
+    const url = new URL(req.url, 'http://room');
+    const token = String(req.headers['x-corsa-token'] || '');
+    const m = token.length === 32 ? [...members.values()].find((x) => x.fileToken === token) : null;
+    if (!store) return fail(404, 'В этой комнате файлы выключены');
+    if (!m) return fail(403, 'Нет доступа');
+    if (req.method === 'GET' && /^\/f\/[0-9a-f]{24}$/.test(url.pathname)) {
+      const meta = store.get(url.pathname.slice(3));
+      return meta ? serveFile(req, res, store, meta) : fail(404, 'Файл удалён');
+    }
+    if (req.method !== 'POST' || url.pathname !== '/upload') return fail(404);
+    const now = Date.now();
+    m.uploads = (m.uploads || []).filter((u) => now - u.at < UPLOAD_WINDOW_MS);
+    const used = m.uploads.reduce((n, u) => n + u.size, 0);
+    const declared = Number(req.headers['content-length'] || 0);
+    if (declared > store.maxFile) return fail(413, 'Файл больше 25 МБ');
+    if (used + declared > UPLOAD_PER_WINDOW) return fail(429, 'Слишком много файлов, подождите несколько минут');
+    const chunks = [];
+    let size = 0;
+    let aborted = false;
+    req.on('data', (c) => {
+      if (aborted) return;
+      size += c.length;
+      if (size > store.maxFile) { aborted = true; fail(413, 'Файл больше 25 МБ'); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      if (aborted) return;
+      try {
+        let name = 'файл';
+        try { name = decodeURIComponent(String(req.headers['x-corsa-name'] || 'файл')); } catch (e) { /* кривое имя */ }
+        const meta = store.save(Buffer.concat(chunks), {
+          name, hint: String(req.headers['content-type'] || ''), uid: pubId(m.uid),
+          voice: req.headers['x-corsa-voice'] === '1', dur: Number(req.headers['x-corsa-duration']),
+        });
+        m.uploads.push({ at: now, size });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ id: meta.id, name: meta.name, type: meta.type, kind: meta.kind, size: meta.size, voice: meta.voice, dur: meta.dur }));
+      } catch (e) { fail(400, e.message); }
+    });
+  }
 
   function saveHistory() {
     if (!historyFile) return;
@@ -282,7 +346,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       cardStyle: 'default', badges: [], links: [],
       status: STATUSES.includes(msg.status) ? msg.status : 'online', activity: cleanActivity(msg.activity), voice: null,
       muted: false, deaf: false, screen: false, watching: null, joinedAt: Date.now(), typingAt: 0,
-      stamps: [],
+      stamps: [], fileToken: crypto.randomBytes(16).toString('hex'), uploads: [],
     };
     applyProfile(m, msg);
     const pid = pubId(uid);
@@ -290,7 +354,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
     members.set(m.sid, m);
     ws.sid = m.sid;
     send(ws, {
-      t: 'welcome', sid: m.sid, me: pid, owner: isOwner(m),
+      t: 'welcome', sid: m.sid, me: pid, owner: isOwner(m), fileToken: store ? m.fileToken : null,
       room: roomInfo(),
       members: [...members.values()].map(pub),
       history: Object.fromEntries(history), voice: voiceState(), pins: Object.fromEntries(pins),
@@ -349,11 +413,13 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         m.stamps.push(now);
         const text = str(msg.text, MAX_TEXT).trim();
         const sticker = sanitizeImageUrl(msg.sticker);
-        if (!text && !sticker) return;
+        const files = cleanFiles(msg.files, m);
+        if (!text && !sticker && !files.length) return;
         const out = {
           id: crypto.randomUUID().slice(0, 12), sid: m.sid, uid: pubId(m.uid), name: m.name, avatar: m.avatar,
           text, sticker, emojis: cleanEmojis(msg.emojis, text), ts: now,
         };
+        if (files.length) out.files = files;
         // Ответ на сообщение: сохраняем короткую цитату, чтобы её было видно, даже если оригинал удалят.
         const orig = typeof msg.reply === 'string' ? findMsg(ch.id, msg.reply) : null;
         if (orig) out.reply = { id: orig.id, name: orig.name, text: (orig.text || (orig.sticker ? 'стикер' : '')).slice(0, 100) };
@@ -384,6 +450,8 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         const target = findMsg(msg.channel, msg.id);
         if (!target || (target.uid !== pubId(m.uid) && !isOwner(m))) return;
         list.splice(list.indexOf(target), 1);
+        // Вложения удалённого сообщения стираются с диска хозяина.
+        if (store) for (const f of target.files || []) store.remove(f.id);
         saveHistory();
         broadcast({ t: 'delete', channel: msg.channel, id: target.id, by: m.sid });
         // Удалённое сообщение снимается и с закрепа.
@@ -428,7 +496,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         else {
           if (i >= 0) return;
           target.pinned = Date.now();
-          list.push({ id: target.id, uid: target.uid, name: target.name, avatar: target.avatar, text: target.text, sticker: target.sticker, emojis: target.emojis, ts: target.ts, pinnedAt: target.pinned, by: m.name });
+          list.push({ id: target.id, uid: target.uid, name: target.name, avatar: target.avatar, text: target.text, sticker: target.sticker, emojis: target.emojis, files: target.files, ts: target.ts, pinnedAt: target.pinned, by: m.name });
           if (list.length > 50) list.shift();
         }
         pins.set(msg.channel, list);
@@ -446,11 +514,13 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         m.stamps.push(now);
         const text = str(msg.text, MAX_TEXT).trim();
         const sticker = sanitizeImageUrl(msg.sticker);
-        if (!text && !sticker) return;
+        const files = cleanFiles(msg.files, m);
+        if (!text && !sticker && !files.length) return;
         const out = {
           id: crypto.randomUUID().slice(0, 12), from: m.sid, to: target.sid, uid: pubId(m.uid), toUid: pubId(target.uid),
           name: m.name, avatar: m.avatar, text, sticker, emojis: cleanEmojis(msg.emojis, text), ts: now,
         };
+        if (files.length) out.files = files;
         send(target.ws, { t: 'dm', msg: out });
         send(ws, { t: 'dm', msg: out });
         break;
@@ -561,16 +631,12 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
   function start() {
     return new Promise((resolve, reject) => {
       const opts = { maxPayload: 64 * 1024 };
-      if (tls) {
-        httpsServer = https.createServer({ key: tls.key, cert: tls.cert, minVersion: 'TLSv1.2' });
-        httpsServer.once('error', reject);
-        httpsServer.listen(port, '0.0.0.0', () => { httpsServer.removeListener('error', reject); resolve(httpsServer.address().port); });
-        wss = new WebSocketServer({ server: httpsServer, ...opts });
-      } else {
-        wss = new WebSocketServer({ port, host: '0.0.0.0', ...opts });
-        wss.once('error', reject);
-        wss.once('listening', () => { wss.removeListener('error', reject); resolve(wss.address().port); });
-      }
+      // Один порт на всё: WebSocket комнаты и HTTP для файлов. С сертификатом — шифрованные wss и https.
+      httpServer = tls ? https.createServer({ key: tls.key, cert: tls.cert, minVersion: 'TLSv1.2' }) : http.createServer();
+      httpServer.on('request', handleHttp);
+      httpServer.once('error', reject);
+      httpServer.listen(port, '0.0.0.0', () => { httpServer.removeListener('error', reject); resolve(httpServer.address().port); });
+      wss = new WebSocketServer({ server: httpServer, ...opts });
       wss.on('connection', onConnection);
       // Живость соединений: молчащих (оборванная сеть) отключаем.
       heartbeat = setInterval(() => {
@@ -588,11 +654,12 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
     return new Promise((resolve) => {
       clearTimeout(saveTimer);
       if (historyFile) { try { fs.writeFileSync(historyFile, snapshot()); } catch (e) { /* ignore */ } }
+      if (store) store.flush();
       clearInterval(heartbeat);
       for (const ws of wss ? wss.clients : []) ws.terminate();
       const done = () => resolve();
       if (!wss) { resolve(); return; }
-      wss.close(() => { if (httpsServer) httpsServer.close(done); else done(); });
+      wss.close(() => { if (httpServer) { httpServer.closeAllConnections && httpServer.closeAllConnections(); httpServer.close(done); } else done(); });
     });
   }
 

@@ -7,7 +7,9 @@
   const DEFAULTS = {
     accent: '#ff2a44', voiceProfile: 'isolation', echo: true, noise: true, agc: true, micId: 'default', speakerId: 'default',
     audioKbps: 128, screenRes: 1080, screenFps: 60, screenMbps: 8, screenPrefer: 'detail', screenAudio: true, stun: '', resolveNames: true, cursorGlow: true, glowPower: 55, animations: true,
-    notifyPlaying: true, notifyOnline: true, notifySound: true,
+    notifyPlaying: true, notifyOnline: true, notifySound: true, notifyMessages: 'mentions', notifyDm: true, notifyPreview: true,
+    // Голос: шумовой порог (null — выключен) и глобальные клавиши
+    gateDb: null, hotkeysGlobal: false, hotMute: 'Control+Shift+M', hotDeafen: 'Control+Shift+D',
     // Вид приложения
     design: 'neon', mode: 'dark', font: 'design', fontSize: 14, round: null, density: 'cozy', msgStyle: 'list', avatarShape: 'circle',
     appBg: '', appBgDim: 55, appBgBlur: 0, showMembers: true, clock24: true, quickCss: '', groupMessages: true, gifHover: false,
@@ -54,6 +56,7 @@
     conn: null, voice: null, view: { type: 'home' }, hosting: null, activity: null, unread: {}, friendsTab: 'online',
     detected: null, music: null, activityOverride: null, shareActivity: store.get('shareActivity', true), accentOverride: null,
     typing: new Map(), replyTo: null, editing: null, lan: [], idle: false, watching: null, reconnect: null,
+    dms: {}, dmUnread: {}, mentions: {}, blocked: new Set(),
   };
 
   const saveProfile = () => store.set('profile', S.profile);
@@ -137,6 +140,8 @@
 
   const el = {};
   function modal(content, { wide = false, onClose, cls = '' } = {}) {
+    // Всплывающие панели (реакции, звуки, закрепы) не должны оставаться поверх окна.
+    document.querySelectorAll('.rx-pop, .sb-pop, .head-pop, .ctx-menu').forEach((x) => x.remove());
     const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(); } });
     const box = h('div', { class: 'modal' + (wide ? ' wide' : '') + (cls ? ' ' + cls : '') },
       h('button', { class: 'icon-btn close', title: 'Закрыть', onclick: () => close() }, '✕'), content);
@@ -256,6 +261,12 @@
     S.unread = {};
     S.typing = new Map();
     S.replyTo = null;
+    // Личные сообщения и список заблокированных хранятся только у вас, отдельно для каждой комнаты.
+    S.roomKey = roomCode(addr.host, addr.port);
+    S.dms = store.get('dm.' + S.roomKey, {});
+    S.dmUnread = {};
+    S.mentions = {};
+    S.blocked = new Set(store.get('blocked.' + S.roomKey, []));
     S.voice = new C.VoiceManager({ client, getSettings: () => S.settings, onChange: onVoiceChange });
     // Уведомления считаем по изменению состояния: первое состояние участников запоминаем молча.
     S.seen = new Map([...client.members.values()].map((m) => [m.sid, { status: m.status, game: m.activity ? m.activity.name : null }]));
@@ -272,6 +283,8 @@
     client.on('delete', onDelete);
     client.on('react', onReact);
     client.on('typing', onTyping);
+    client.on('dm', onDm);
+    client.on('pins', onPins);
     client.on('ping', () => renderPing());
     client.on('room', () => {
       // Канал, который сейчас открыт, могли удалить.
@@ -407,9 +420,113 @@
     const viewing = S.view.type === 'text' && S.view.channel === channel;
     const typers = S.typing.get(channel);
     if (typers) typers.delete(msg.sid);
+    const other = msg.sid !== S.conn.sid;
     if (viewing) { appendMessage(msg, true); renderTyping(); }
-    else if (msg.sid !== S.conn.sid) { S.unread[channel] = (S.unread[channel] || 0) + 1; renderSide(); }
+    else if (other) S.unread[channel] = (S.unread[channel] || 0) + 1;
+    // Сначала считаем упоминание, потом рисуем панель: так у канала сразу виден значок «@».
+    if (other && !S.blocked.has(msg.uid)) notifyMessage(channel, msg, viewing);
+    if (other && !viewing) renderSide();
     C.plugins.emit('message', channel, msg);
+  }
+
+  // ---------- Уведомления о сообщениях ----------
+  const mutedKey = (channel) => `${S.roomKey}:${channel}`;
+  const isMutedChannel = (channel) => store.get('mutedChannels', []).includes(mutedKey(channel));
+  function mentionsMe(msg) {
+    const name = (S.profile.name || '').toLowerCase();
+    if (name && (msg.text || '').toLowerCase().includes('@' + name)) return true;
+    if (msg.reply) { const orig = [...S.conn.history.values()].flat().find((x) => x.id === msg.reply.id); if (orig && orig.uid === S.conn.meId) return true; }
+    return false;
+  }
+
+  function notifyMessage(channel, msg, viewing) {
+    const mention = mentionsMe(msg);
+    if (mention && !viewing) S.mentions[channel] = (S.mentions[channel] || 0) + 1;
+    const mode = S.settings.notifyMessages;
+    const wanted = mention || (mode === 'all' && !isMutedChannel(channel));
+    updateTitle();
+    if (!wanted || mode === 'none' || S.status === 'dnd') return;
+    const ch = S.conn.room.channels.find((c) => c.id === channel);
+    const body = S.settings.notifyPreview ? (msg.text ? plainText(msg.text) : 'стикер') : 'Новое сообщение';
+    pushNotice(`${msg.name}${ch ? ' в #' + ch.name : ''}${mention ? ' — упоминание' : ''}`, body, 'ch:' + channel, viewing);
+  }
+
+  // Окно не в фокусе — уведомление Windows и мигание на панели задач, в фокусе — короткая подсказка внутри.
+  function pushNotice(title, body, tag, viewing) {
+    if (!document.hasFocus()) {
+      native.notify({ title, body: body.slice(0, 200), tag, silent: !S.settings.notifySound }).catch(() => {});
+      native.attention(true).catch(() => {});
+    } else if (!viewing) {
+      C.toast(`${title}: ${body.slice(0, 90)}`);
+    }
+  }
+
+  // Заголовок окна: число упоминаний и непрочитанных личных сообщений, точка — если есть просто непрочитанное.
+  function updateTitle() {
+    const n = Object.values(S.mentions).reduce((a, b) => a + b, 0) + Object.values(S.dmUnread).reduce((a, b) => a + b, 0);
+    const any = Object.values(S.unread).some((x) => x > 0);
+    document.title = n ? `(${n}) corsa-mess` : any ? '• corsa-mess' : 'corsa-mess';
+  }
+
+  // ---------- Личные сообщения ----------
+  // Сервер их не хранит: история лежит только у собеседников.
+  let dmSaveTimer = null;
+  function saveDms() {
+    clearTimeout(dmSaveTimer);
+    dmSaveTimer = setTimeout(() => { if (S.roomKey) store.set('dm.' + S.roomKey, S.dms); }, 400);
+  }
+
+  function onDm(msg) {
+    const mine = msg.uid === S.conn.meId;
+    const peer = mine ? msg.toUid : msg.uid;
+    if (!mine && S.blocked.has(peer)) return;
+    const member = memberByPub(peer);
+    const conv = S.dms[peer] || { name: member ? member.name : msg.name, avatar: member ? member.avatar : msg.avatar, list: [] };
+    if (!mine) { conv.name = msg.name; conv.avatar = msg.avatar; }
+    conv.list.push(msg);
+    if (conv.list.length > 200) conv.list.shift();
+    conv.last = msg.ts;
+    S.dms[peer] = conv;
+    saveDms();
+    const viewing = S.view.type === 'dm' && S.view.peer === peer;
+    if (viewing) appendDm(msg, true);
+    else if (!mine) S.dmUnread[peer] = (S.dmUnread[peer] || 0) + 1;
+    if (!mine) {
+      updateTitle();
+      if (S.settings.notifyDm && S.status !== 'dnd') pushNotice(`✉ ${msg.name}`, S.settings.notifyPreview ? (msg.text ? plainText(msg.text) : 'стикер') : 'Личное сообщение', 'dm:' + peer, viewing);
+    }
+    C.plugins.emit('dm', msg);
+    renderSide();
+  }
+
+  function openDm(peer) {
+    if (!S.dms[peer]) {
+      const m = memberByPub(peer);
+      S.dms[peer] = { name: m ? m.name : 'Собеседник', avatar: m ? m.avatar : null, list: [], last: Date.now() };
+      saveDms();
+    }
+    document.querySelectorAll('.overlay').forEach((o) => o.remove());
+    S.view = { type: 'dm', peer };
+    S.dmUnread[peer] = 0;
+    updateTitle();
+    renderAll();
+  }
+
+  function toggleBlock(pub, name) {
+    if (S.blocked.has(pub)) S.blocked.delete(pub);
+    else { if (!confirm(`Скрыть сообщения ${name || 'этого участника'} у себя? Он об этом не узнает, личные сообщения от него не будут приходить.`)) return; S.blocked.add(pub); }
+    store.set('blocked.' + S.roomKey, [...S.blocked]);
+    C.toast(S.blocked.has(pub) ? 'Заблокирован у вас' : 'Разблокирован');
+    renderAll();
+  }
+
+  function onPins(channel, id) {
+    if (S.view.type !== 'text' || S.view.channel !== channel) return;
+    const node = msgNode(id);
+    const msg = (S.conn.history.get(channel) || []).find((x) => x.id === id);
+    if (node && msg) node.replaceWith(messageNode(msg, channel, node.classList.contains('cont')));
+    const pin = document.getElementById('pin-count');
+    if (pin) pin.textContent = String((S.conn.pins.get(channel) || []).length || '');
   }
 
   function msgNode(id) { return document.querySelector(`#messages .msg[data-id="${CSS.escape(id)}"]`); }
@@ -646,8 +763,18 @@
     const nav = (icon, label, view, extra, ch) => {
       const node = h('div', {
         class: 'nav' + (S.view.type === view.type && S.view.channel === view.channel ? ' on' : ''),
-        onclick: () => { S.view = view; if (view.channel) S.unread[view.channel] = 0; renderAll(); },
-      }, h('span', { class: 'nav-ic' }, icon), h('span', { class: 'nav-label' }, label), ...(ch ? C.plugins.collect('channel', { channel: ch, typing: typersIn(ch.id) }) : []), extra);
+        onclick: () => { S.view = view; if (view.channel) { S.unread[view.channel] = 0; S.mentions[view.channel] = 0; } updateTitle(); renderAll(); },
+        oncontextmenu: ch && ch.type === 'text' ? (e) => {
+          const muted = isMutedChannel(ch.id);
+          contextMenu(e, [{ label: muted ? '🔔 Снова уведомлять' : '🔕 Не уведомлять (кроме упоминаний)', onclick: () => {
+            const list = new Set(store.get('mutedChannels', []));
+            if (muted) list.delete(mutedKey(ch.id)); else list.add(mutedKey(ch.id));
+            store.set('mutedChannels', [...list]);
+            renderSide();
+          } }, { label: '✓ Отметить прочитанным', onclick: () => { S.unread[ch.id] = 0; S.mentions[ch.id] = 0; updateTitle(); renderSide(); } }]);
+        } : null,
+      }, h('span', { class: 'nav-ic' }, icon), h('span', { class: 'nav-label' }, label), ...(ch ? C.plugins.collect('channel', { channel: ch, typing: typersIn(ch.id) }) : []),
+      ch && ch.type === 'text' && isMutedChannel(ch.id) ? h('span', { class: 'muted-ic', title: 'Уведомления выключены' }, '🔕') : null, extra);
       if (ch && ch.topic) node.title = ch.topic;
       return node;
     };
@@ -656,6 +783,25 @@
     scroll.append(nav('🏠', 'Главная', { type: 'home' }));
     if (S.conn) {
       scroll.append(nav('👥', 'Друзья', { type: 'friends' }));
+      // Личные беседы: сверху самые свежие.
+      const convs = Object.entries(S.dms).filter(([p]) => !S.blocked.has(p)).sort((a, b) => (b[1].last || 0) - (a[1].last || 0));
+      if (convs.length) {
+        scroll.append(h('div', { class: 'group-label' }, 'Личные сообщения'));
+        for (const [peer, conv] of convs.slice(0, 20)) {
+          const mm = memberByPub(peer);
+          const n = S.dmUnread[peer];
+          scroll.append(h('div', { class: 'nav dm-nav' + (S.view.type === 'dm' && S.view.peer === peer ? ' on' : ''), onclick: () => openDm(peer) },
+            avatarEl(mm || { name: conv.name, avatar: conv.avatar }, { status: mm ? mm.status : 'offline' }), h('span', { class: 'nav-label' }, mm ? mm.name : conv.name),
+            n ? h('span', { class: 'badge' }, n) : null,
+            h('button', { class: 'dm-x', title: 'Удалить беседу у себя', onclick: (e) => {
+              e.stopPropagation();
+              if (!confirm('Удалить эту беседу у себя? У собеседника она останется.')) return;
+              delete S.dms[peer]; saveDms();
+              if (S.view.type === 'dm' && S.view.peer === peer) S.view = firstTextView();
+              renderAll();
+            } }, '✕')));
+        }
+      }
       // Каналы по категориям; категорию можно свернуть, выбор запоминается.
       const groups = new Map();
       for (const ch of S.conn.room.channels) {
@@ -676,7 +822,8 @@
         for (const ch of list) {
           if (ch.type === 'text') {
             const n = S.unread[ch.id];
-            scroll.append(nav('#', ch.name, { type: 'text', channel: ch.id }, n ? h('span', { class: 'badge' }, n) : null, ch));
+            const at = S.mentions[ch.id];
+            scroll.append(nav('#', ch.name, { type: 'text', channel: ch.id }, at ? h('span', { class: 'badge mention' }, '@' + at) : n ? h('span', { class: 'badge' }, n) : null, ch));
           } else {
             scroll.append(nav('🔊', ch.name, { type: 'voice', channel: ch.id }, null, ch));
             const inside = (S.conn.voice[ch.id] || []).map((sid) => S.conn.members.get(sid)).filter(Boolean);
@@ -749,7 +896,9 @@
   function memberMenu(m) {
     return [
       { label: '👤 Профиль', onclick: () => openProfileCard(m) },
+      S.conn && m.sid !== S.conn.sid ? { label: '✉ Написать лично', onclick: () => openDm(m.uid) } : null,
       { label: '@ Упомянуть', onclick: () => { const f = document.querySelector('.composer .field'); if (f) { f.value += `@${m.name} `; f.focus(); } } },
+      S.conn && m.sid !== S.conn.sid ? { label: S.blocked.has(m.uid) ? '✓ Разблокировать у себя' : '🚫 Скрыть у себя', onclick: () => toggleBlock(m.uid, m.name) } : null,
       S.conn && S.conn.owner && m.sid !== S.conn.sid ? { label: '🚪 Выгнать', danger: true, onclick: () => S.conn.send({ t: 'kick', sid: m.sid }) } : null,
     ];
   }
@@ -791,6 +940,7 @@
     if (t === 'friends') renderFriends(m);
     else if (t === 'text') renderText(m);
     else if (t === 'voice') renderVoice(m);
+    else if (t === 'dm') renderDm(m);
   }
 
   function renderReconnect(m) {
@@ -925,8 +1075,9 @@
     m.replaceChildren(
       h('div', { class: 'main-head' }, h('span', { class: 'title' }, '👥 Друзья'), h('div', { class: 'tabs' }, tab('online', 'В сети'), tab('all', 'Все'))),
       h('div', { class: 'page' }, h('div', { class: 'group-label', style: { padding: '0 0 8px' } }, `${S.friendsTab === 'online' ? 'В сети' : 'Все'} — ${list.length}`),
-        ...list.map((u) => h('div', { class: 'member', onclick: () => openProfileCard(u) }, avatarEl(u, { status: u.status }),
-          h('div', { class: 'meta' }, h('div', { class: 'nm' }, nameEl(u)), h('div', { class: 'act' }, u.activity ? activityLine(u.activity) : u.custom || statusLabel(u)))))));
+        ...list.map((u) => h('div', { class: 'member friend-row', onclick: () => openProfileCard(u) }, avatarEl(u, { status: u.status }),
+          h('div', { class: 'meta grow' }, h('div', { class: 'nm' }, nameEl(u)), h('div', { class: 'act' }, u.activity ? activityLine(u.activity) : u.custom || statusLabel(u))),
+          u.sid !== S.conn.sid ? h('button', { class: 'icon-btn', title: 'Написать лично', onclick: (e) => { e.stopPropagation(); openDm(u.uid); } }, '✉') : null))));
   }
 
   // ---------- Чат ----------
@@ -1001,8 +1152,14 @@
     S.conn.send({ t: 'delete', channel, id: msg.id });
   }
 
-  function messageNode(shownIn, channel, cont) {
+  function messageNode(shownIn, channel, cont, force) {
     const msg = shownIn;
+    // Автор заблокирован у вас: вместо сообщения короткая заглушка, по клику можно посмотреть.
+    if (!force && S.blocked.has(msg.uid)) {
+      const stub = h('div', { class: 'msg blocked-msg', dataset: { id: msg.id, uid: msg.uid || '', ts: String(msg.ts) } },
+        h('span', { class: 'hint', onclick: () => stub.replaceWith(messageNode(msg, channel, false, true)) }, '🚫 Сообщение заблокированного участника. Показать'));
+      return stub;
+    }
     const shown = C.plugins.transformMessage(msg);
     const media = shown.sticker ? C.media(shown.sticker, 'sticker') : null;
     if (media) { media.dataset.url = shown.sticker; media.addEventListener('error', () => media.replaceWith(h('div', { class: 'hint' }, 'Стикер не загрузился'))); }
@@ -1019,6 +1176,7 @@
       h('button', { title: 'Реакция', onclick: (e) => reactionPicker(e.currentTarget, channel, msg) }, '😀'),
       h('button', { title: 'Ответить', onclick: () => setReply(msg) }, '↩'),
       mine && msg.text ? h('button', { title: 'Изменить', onclick: () => startEdit(node, msg, channel) }, '✎') : null,
+      canDelete ? h('button', { title: msg.pinned ? 'Открепить' : 'Закрепить', onclick: () => S.conn.send({ t: 'pin', channel, id: msg.id, on: !msg.pinned }) }, msg.pinned ? '📍' : '📌') : null,
       canDelete ? h('button', { title: 'Удалить', class: 'danger', onclick: (e) => deleteMsg(msg, channel, !e.shiftKey) }, '🗑') : null,
       ...C.plugins.collect('msgTools', { msg, channel }));
     const mentionsMe = shown.text && S.profile.name && shown.text.toLowerCase().includes('@' + S.profile.name.toLowerCase());
@@ -1028,13 +1186,16 @@
         { label: '↩ Ответить', onclick: () => setReply(msg) },
         msg.text ? { label: '📋 Скопировать текст', onclick: () => copy(msg.text) } : null,
         mine && msg.text ? { label: '✎ Изменить', onclick: () => startEdit(node, msg, channel) } : null,
+        canDelete ? { label: msg.pinned ? '📍 Открепить' : '📌 Закрепить', onclick: () => S.conn.send({ t: 'pin', channel, id: msg.id, on: !msg.pinned }) } : null,
+        !mine && mem ? { label: '✉ Написать лично', onclick: () => openDm(mem.uid) } : null,
         canDelete ? { label: '🗑 Удалить', danger: true, onclick: () => deleteMsg(msg, channel) } : null,
       ]) },
     cont ? h('span', { class: 'cont-time' }, new Date(shown.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })) : avatarEl(who),
     h('div', { class: 'body' },
       shown.reply ? h('div', { class: 'reply-ref', onclick: () => { const t = msgNode(shown.reply.id); if (t) { t.scrollIntoView({ block: 'center', behavior: 'smooth' }); t.classList.add('flash'); setTimeout(() => t.classList.remove('flash'), 1200); } } },
         h('span', { class: 'rr-arrow' }, '↱'), h('b', null, shown.reply.name), ' ', plainText(shown.reply.text)) : null,
-      cont ? null : h('div', { class: 'head' }, author, h('span', { class: 'time' }, fmtTime(shown.ts))),
+      cont ? null : h('div', { class: 'head' }, author, h('span', { class: 'time' }, fmtTime(shown.ts)), msg.pinned ? h('span', { class: 'pin-mark', title: 'Закреплено' }, '📌') : null),
+      cont && msg.pinned ? h('span', { class: 'pin-mark', title: 'Закреплено' }, '📌') : null,
       shown.text ? richText(shown.text, shown.emojis) : null,
       shown.edited && !shown.text ? h('span', { class: 'edited', title: 'Изменено ' + fmtTime(shown.edited) }, '(изменено)') : null,
       media, reactionsRow(msg, channel)),
@@ -1103,9 +1264,15 @@
         composer.append(pop);
       } }, '😀'),
       h('button', { class: 'btn primary', onclick: submit }, 'Отправить'));
+    const search = h('input', { class: 'input head-search', placeholder: '🔍 Поиск', title: 'Поиск по каналу (Ctrl+F)' });
+    search.addEventListener('input', () => searchPopup(search, ch.id));
+    search.addEventListener('keydown', (e) => { if (e.key === 'Escape') { search.value = ''; searchPopup(search, ch.id); field.focus(); } });
+    const pinCount = (S.conn.pins.get(ch.id) || []).length;
     const head = h('div', { class: 'main-head' }, h('span', { class: 'title' }, '# ' + ch.name),
       ch.nsfw ? h('span', { class: 'nsfw-pill' }, '18+') : null,
       ch.topic ? h('span', { class: 'topic' }, ch.topic) : null, h('span', { class: 'spacer' }),
+      h('button', { class: 'icon-btn pin-btn', title: 'Закреплённые сообщения', onclick: (e) => pinsPopup(e.currentTarget, ch.id) }, '📌', h('span', { id: 'pin-count' }, pinCount || '')),
+      search,
       h('button', { class: 'icon-btn' + (S.settings.showMembers ? ' on' : ''), title: 'Список участников', onclick: () => { S.settings.showMembers = !S.settings.showMembers; saveSettings(); renderRight(); renderMain(); } }, '👥'));
     m.replaceChildren(head, messages, h('div', { class: 'typing', id: 'typing' }), h('div', { class: 'reply-bar', id: 'reply-bar' }), composer);
     for (const msg of list) appendMessage(msg, false);
@@ -1115,9 +1282,111 @@
     field.focus();
   }
 
+  // Всплывающий список под шапкой канала: закрепы или результаты поиска. Клик — перейти к сообщению.
+  function jumpTo(id) {
+    const t = msgNode(id);
+    if (!t) { C.toast('Это сообщение уже ушло из истории канала'); return; }
+    t.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    t.classList.add('flash');
+    setTimeout(() => t.classList.remove('flash'), 1200);
+  }
+
+  function headPopup(anchor, title, items, empty) {
+    document.querySelectorAll('.head-pop').forEach((x) => x.remove());
+    const pop = h('div', { class: 'head-pop' }, h('div', { class: 'hp-title' }, title),
+      items.length ? items : h('div', { class: 'hint', style: { padding: '8px' } }, empty));
+    document.body.append(pop);
+    const r = anchor.getBoundingClientRect();
+    pop.style.top = r.bottom + 8 + 'px';
+    pop.style.left = Math.max(8, Math.min(r.right - pop.offsetWidth, innerWidth - pop.offsetWidth - 8)) + 'px';
+    const off = (ev) => { if (!pop.contains(ev.target) && ev.target !== anchor) { pop.remove(); document.removeEventListener('mousedown', off); } };
+    setTimeout(() => document.addEventListener('mousedown', off), 0);
+    return pop;
+  }
+
+  function pinsPopup(anchor, channel) {
+    const list = [...(S.conn.pins.get(channel) || [])].reverse();
+    headPopup(anchor, `Закреплено — ${list.length}`, list.map((p) => {
+      const can = p.uid === S.conn.meId || S.conn.owner;
+      return h('div', { class: 'hp-item', onclick: () => jumpTo(p.id) },
+        h('div', { class: 'hp-head' }, h('b', null, p.name), h('span', { class: 'time' }, fmtTime(p.ts)),
+          can ? h('button', { class: 'icon-btn', title: 'Открепить', onclick: (e) => { e.stopPropagation(); S.conn.send({ t: 'pin', channel, id: p.id, on: false }); e.currentTarget.closest('.hp-item').remove(); } }, '✕') : null),
+        p.text ? richText(p.text, p.emojis) : p.sticker ? C.media(p.sticker, 'sticker') : null);
+    }), 'Пока ничего не закреплено. Наведите на сообщение и нажмите 📌.');
+  }
+
+  function searchPopup(input, channel) {
+    const q = input.value.trim().toLowerCase();
+    if (!q) { document.querySelectorAll('.head-pop').forEach((x) => x.remove()); return; }
+    const found = (S.conn.history.get(channel) || []).filter((x) => !S.blocked.has(x.uid) && ((x.text || '').toLowerCase().includes(q) || (x.name || '').toLowerCase().includes(q))).slice(-30).reverse();
+    headPopup(input, `Найдено: ${found.length}`, found.map((x) => h('div', { class: 'hp-item', onclick: () => jumpTo(x.id) },
+      h('div', { class: 'hp-head' }, h('b', null, x.name), h('span', { class: 'time' }, fmtTime(x.ts))),
+      h('div', { class: 'hp-text' }, plainText(x.text || 'стикер').slice(0, 160)))), 'Ничего не нашлось в последних 200 сообщениях.');
+    input.focus();
+  }
+
+  // Личная беседа: те же текст, эмодзи и стикеры, но без реакций и правки (сервер такие сообщения не хранит).
+  function dmNode(msg, cont) {
+    const mine = msg.uid === S.conn.meId;
+    const mem = memberByPub(msg.uid);
+    const who = mem || { name: msg.name, avatar: msg.avatar };
+    const media = msg.sticker ? C.media(msg.sticker, 'sticker') : null;
+    if (media) media.dataset.url = msg.sticker;
+    return h('div', { class: 'msg' + (mine ? ' mine' : '') + (cont ? ' cont' : ''), dataset: { id: msg.id, uid: msg.uid, ts: String(msg.ts) },
+      oncontextmenu: (e) => contextMenu(e, [msg.text ? { label: '📋 Скопировать текст', onclick: () => copy(msg.text) } : null,
+        { label: '🗑 Удалить у себя', danger: true, onclick: () => { const conv = S.dms[S.view.peer]; if (conv) { conv.list = conv.list.filter((x) => x.id !== msg.id); saveDms(); renderMain(); } } }]) },
+    cont ? h('span', { class: 'cont-time' }, new Date(msg.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })) : avatarEl(who),
+    h('div', { class: 'body' }, cont ? null : h('div', { class: 'head' }, nameEl(who, { cls: 'author' }), h('span', { class: 'time' }, fmtTime(msg.ts))),
+      msg.text ? richText(msg.text, msg.emojis) : null, media));
+  }
+
+  function appendDm(msg, stick) {
+    const box = document.getElementById('messages');
+    if (!box) return;
+    const empty = box.querySelector('.empty');
+    if (empty) empty.remove();
+    const near = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+    const prev = box.lastElementChild;
+    const cont = S.settings.groupMessages && S.settings.msgStyle !== 'compact' && prev && prev.classList.contains('msg') && prev.dataset.uid === msg.uid && msg.ts - Number(prev.dataset.ts) < 5 * 60000;
+    const node = dmNode(msg, cont);
+    if (stick) node.classList.add('new');
+    box.append(node);
+    if (stick && near) box.scrollTop = box.scrollHeight;
+  }
+
+  function renderDm(m) {
+    const peer = S.view.peer;
+    const conv = S.dms[peer] || { name: 'Собеседник', list: [] };
+    const mem = memberByPub(peer);
+    const name = mem ? mem.name : conv.name;
+    const messages = h('div', { class: 'messages', id: 'messages' });
+    if (!conv.list.length) messages.append(h('div', { class: 'empty' }, h('h3', null, `Беседа с ${name}`), h('div', null, 'Сообщения видите только вы двое. Сервер их пересылает, но не хранит.')));
+    const field = h('textarea', { class: 'field', rows: 1, placeholder: mem ? `Написать ${name}` : `${name} сейчас нет в комнате` , disabled: !mem });
+    const sendDm = (extra) => { const target = memberByPub(peer); if (!target) { C.toast(`${name} сейчас нет в комнате`); return; } S.conn.send({ t: 'dm', to: target.sid, ...extra }); };
+    const submit = () => { const t = field.value.trim(); if (!t) return; sendDm({ text: t, emojis: C.stickerLib.usedEmojis(t) }); field.value = ''; field.style.height = ''; };
+    field.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
+    field.addEventListener('input', () => { field.style.height = 'auto'; field.style.height = Math.min(140, field.scrollHeight) + 'px'; });
+    let pop = null;
+    const closePop = () => { if (pop) { pop.remove(); pop = null; } };
+    const composer = h('div', { class: 'composer' }, field,
+      h('button', { class: 'btn', title: 'Стикеры и эмодзи', disabled: !mem, onclick: () => {
+        if (pop) { closePop(); return; }
+        pop = stickerPopup(null, field, closePop, (url) => sendDm({ sticker: url }));
+        composer.append(pop);
+      } }, '😀'),
+      h('button', { class: 'btn primary', disabled: !mem, onclick: submit }, 'Отправить'));
+    const head = h('div', { class: 'main-head' }, mem ? avatarEl(mem, { status: mem.status }) : null, h('span', { class: 'title' }, '@ ' + name),
+      h('span', { class: 'topic' }, mem ? statusLabel(mem) : 'не в комнате'), h('span', { class: 'spacer' }),
+      mem ? h('button', { class: 'icon-btn', title: 'Профиль', onclick: () => openProfileCard(mem) }, '👤') : null);
+    m.replaceChildren(head, messages, composer);
+    for (const msg of conv.list) appendDm(msg, false);
+    messages.scrollTop = messages.scrollHeight;
+    if (mem) field.focus();
+  }
+
   // Окно выбора: вкладки «Стикеры» и «Эмодзи», категории, быстрое добавление по ссылке.
   // Перерисовывается само, поэтому набранный текст в поле ввода не теряется.
-  function stickerPopup(channel, field, close) {
+  function stickerPopup(channel, field, close, onSticker) {
     const lib = C.stickerLib;
     const pop = h('div', { class: 'sticker-pop' });
     const insertEmoji = (name) => {
@@ -1152,6 +1421,7 @@
         h('div', { class: 'sticker-grid' + (type === 'emoji' ? ' emoji-grid' : '') }, items.length ? items.map((item) =>
           h('div', { class: 'st', title: type === 'emoji' ? `:${item.name}:` : item.name, onclick: () => {
             if (type === 'emoji') insertEmoji(item.name);
+            else if (onSticker) { onSticker(item.url); close(); }
             else { const out = { t: 'msg', channel, sticker: item.url }; if (S.replyTo) out.reply = S.replyTo.id; S.conn.send(out); setReply(null); close(); }
           } }, C.media(item.url, ''),
           h('button', { class: 'x', title: 'Удалить', onclick: (ev) => { ev.stopPropagation(); lib.removeItem(cat.id, item.id); draw(); } }, '✕'))) :
@@ -1215,6 +1485,7 @@
         h('button', { class: 'btn' + (v.muted ? ' danger' : ''), onclick: () => v.setMuted(!v.muted) }, v.muted ? '🔇 Включить микрофон' : '🎙 Микрофон'),
         h('button', { class: 'btn' + (v.deafened ? ' danger' : ''), onclick: () => v.setDeafened(!v.deafened) }, v.deafened ? '🙉 Включить звук' : '🎧 Звук'),
         h('button', { class: 'btn' + (sharing ? ' primary' : ''), onclick: () => (sharing ? v.stopScreen() : pickScreen()) }, sharing ? '⏹ Остановить показ' : '🖥 Показать экран'),
+        ...C.plugins.collect('voiceControls', { channel: ch }),
         h('button', { class: 'btn danger', onclick: () => v.leave() }, '📞 Выйти')));
     updateSpeaking();
     updateNetStats();
@@ -1356,14 +1627,17 @@
 
   function openProfileCard(u) {
     const card = profileCardNode(u);
-    // Владелец комнаты может исключить или заблокировать участника.
-    if (S.conn && S.conn.owner && u.sid && u.sid !== S.conn.sid) {
+    if (S.conn && u.sid && u.sid !== S.conn.sid && u.uid) {
+      const blocked = S.blocked.has(u.uid);
       card.append(h('div', { class: 'profile-body', style: { marginTop: '0', paddingBottom: '16px', position: 'relative', zIndex: 6 } },
-        h('div', { class: 'row' },
-          h('button', { class: 'btn', onclick: () => { S.conn.send({ t: 'kick', sid: u.sid }); dlg.close(); } }, 'Выгнать'),
-          h('button', { class: 'btn danger', onclick: () => {
-            if (confirm(`Заблокировать ${u.name}? Он не сможет войти снова.`)) { S.conn.send({ t: 'kick', sid: u.sid, ban: true }); dlg.close(); }
-          } }, 'Заблокировать'))));
+        h('div', { class: 'row wrap' },
+          h('button', { class: 'btn primary', onclick: () => { dlg.close(); openDm(u.uid); } }, '✉ Написать'),
+          h('button', { class: 'btn', onclick: () => { dlg.close(); toggleBlock(u.uid, u.name); } }, blocked ? 'Разблокировать' : '🚫 Скрыть у себя'),
+          // Владелец комнаты может исключить или заблокировать участника на сервере.
+          S.conn.owner ? h('button', { class: 'btn', onclick: () => { S.conn.send({ t: 'kick', sid: u.sid }); dlg.close(); } }, 'Выгнать') : null,
+          S.conn.owner ? h('button', { class: 'btn danger', onclick: () => {
+            if (confirm(`Заблокировать ${u.name} в комнате? Он не сможет войти снова.`)) { S.conn.send({ t: 'kick', sid: u.sid, ban: true }); dlg.close(); }
+          } }, 'Бан') : null)));
     }
     const dlg = modal(card, { cls: 'profile-modal' });
   }
@@ -1516,6 +1790,7 @@
     };
     fillDevices();
     const profile = S.settings.voiceProfile;
+    const meter = micMeter();
     const radios = [['isolation', 'Изоляция голоса', 'Убирает шум и эхо, выравнивает громкость'], ['studio', 'Студия', 'Чистый звук без обработки'], ['custom', 'Пользовательский', 'Выберите обработку вручную']];
     return h('div', null, h('h2', null, 'Голос и видео'),
       h('div', { class: 'row wrap' }, h('div', { class: 'grow' }, field('Микрофон', mic)), h('div', { class: 'grow' }, field('Динамик', spk))),
@@ -1533,7 +1808,117 @@
         switchRow('Шумоподавление', S.settings.noise, (v) => { S.settings.noise = v; saveSettings(); }),
         switchRow('Автоматическая громкость', S.settings.agc, (v) => { S.settings.agc = v; saveSettings(); })) : null,
       range('Качество звука', 32, 510, 2, S.settings.audioKbps, (v) => `${v} кбит/с, стерео Opus`, (v) => { S.settings.audioKbps = v; saveSettings(); }),
-      h('div', { class: 'hint' }, 'Применяется при следующем входе в голосовой канал. 128 — отлично для голоса, 256 и выше — для музыки.'));
+      h('div', { class: 'hint' }, 'Применяется при следующем входе в голосовой канал. 128 — отлично для голоса, 256 и выше — для музыки.'),
+      h('label', { class: 'lbl' }, 'Шумовой порог'),
+      switchRow('Не передавать звук тише порога', S.settings.gateDb != null, (v) => { S.settings.gateDb = v ? -50 : null; saveSettings(); if (S.voice) S.voice.applyGate(); redraw(); },
+        'Клавиатура, вентилятор и фон не слышны, пока вы молчите. Сдвиньте порог так, чтобы полоска переходила его только когда вы говорите.'),
+      S.settings.gateDb != null ? range('Порог', -80, -10, 1, S.settings.gateDb, (v) => v + ' дБ', (v) => { S.settings.gateDb = v; saveSettings(); if (S.voice) S.voice.applyGate(); meter.setThreshold(v); }) : null,
+      meter.node,
+      h('label', { class: 'lbl' }, 'Глобальные клавиши'),
+      switchRow('Работают и когда окно свёрнуто (например, в игре)', S.settings.hotkeysGlobal, (v) => { S.settings.hotkeysGlobal = v; saveSettings(); applyGlobalHotkeys(true); }),
+      h('div', { class: 'row wrap' }, h('div', { class: 'grow' }, field('Микрофон вкл/выкл', hotkeyInput('hotMute'))), h('div', { class: 'grow' }, field('Звук вкл/выкл', hotkeyInput('hotDeafen')))),
+      h('div', { class: 'hint' }, 'Нажмите в поле нужное сочетание (с Ctrl, Alt или Shift, либо F1–F24). Backspace — убрать.'));
+  }
+
+  // Полоска уровня микрофона с отметкой порога. В голосе берёт уровень из канала, иначе включает проверку на 20 секунд.
+  function micMeter() {
+    const fill = h('i');
+    const mark = h('b');
+    const label = h('span', { class: 'hint' }, '');
+    let test = null; let raf = 0; let until = 0;
+    const node = h('div', { class: 'mic-meter' }, h('div', { class: 'mm-bar' }, fill, mark), h('div', { class: 'row' }, label,
+      h('button', { class: 'btn', onclick: async () => {
+        if (S.voice && S.voice.inChannel) return;
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: S.settings.micId !== 'default' ? { exact: S.settings.micId } : undefined } });
+          const ctx = new AudioContext();
+          const an = ctx.createAnalyser();
+          an.fftSize = 1024;
+          ctx.createMediaStreamSource(stream).connect(an);
+          test = { stream, ctx, an, data: new Float32Array(1024) };
+          until = Date.now() + 20000;
+        } catch (e) { C.toast('Нет доступа к микрофону'); }
+      } }, 'Проверить микрофон')));
+    const pos = (db) => Math.max(0, Math.min(100, ((db + 90) / 90) * 100));
+    const setThreshold = (db) => { mark.style.left = pos(db) + '%'; mark.style.display = db == null ? 'none' : ''; };
+    setThreshold(S.settings.gateDb);
+    const stopTest = () => { if (test) { test.stream.getTracks().forEach((t) => t.stop()); test.ctx.close().catch(() => {}); test = null; } };
+    const tick = () => {
+      if (!node.isConnected) { stopTest(); return; }
+      raf = requestAnimationFrame(tick);
+      let db = null;
+      if (S.voice && S.voice.micLevel) db = S.voice.micLevel.db;
+      else if (test) {
+        test.an.getFloatTimeDomainData(test.data);
+        let s = 0; for (const v of test.data) s += v * v;
+        db = 10 * Math.log10(s / test.data.length + 1e-12);
+        if (Date.now() > until) stopTest();
+      }
+      fill.style.width = db == null ? '0%' : pos(db) + '%';
+      const open = db != null && (S.settings.gateDb == null || db > S.settings.gateDb);
+      fill.classList.toggle('open', open);
+      label.textContent = db == null ? (S.voice && S.voice.inChannel ? '' : 'Нажмите «Проверить микрофон» и скажите что-нибудь') : `${Math.round(db)} дБ ${open ? '— передаётся' : '— тишина'}`;
+    };
+    raf = requestAnimationFrame(tick);
+    return { node, setThreshold };
+  }
+
+  // Поле, которое запоминает нажатое сочетание клавиш в формате Electron (Control+Shift+M).
+  function keyName(code) {
+    let m;
+    if ((m = /^Key([A-Z])$/.exec(code))) return m[1];
+    if ((m = /^Digit(\d)$/.exec(code))) return m[1];
+    if ((m = /^(F\d{1,2})$/.exec(code))) return m[1];
+    if ((m = /^Numpad(\d)$/.exec(code))) return 'num' + m[1];
+    return null;
+  }
+  function hotkeyInput(key) {
+    const i = h('input', { class: 'input hotkey', value: S.settings[key] || '', placeholder: 'не задано', readOnly: true });
+    i.addEventListener('keydown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape') { i.blur(); return; }
+      if (e.key === 'Backspace' || e.key === 'Delete') { S.settings[key] = ''; i.value = ''; saveSettings(); applyGlobalHotkeys(); return; }
+      const k = keyName(e.code);
+      if (!k) return;
+      const mods = [e.ctrlKey && 'Control', e.altKey && 'Alt', e.shiftKey && 'Shift'].filter(Boolean);
+      if (!mods.length && !/^F\d+$/.test(k)) { C.toast('Нужен Ctrl, Alt или Shift (или клавиша F1–F24)'); return; }
+      S.settings[key] = [...mods, k].join('+');
+      i.value = S.settings[key];
+      saveSettings();
+      applyGlobalHotkeys(true);
+    });
+    return i;
+  }
+
+  async function applyGlobalHotkeys(report) {
+    const s = S.settings;
+    const list = s.hotkeysGlobal ? [{ id: 'mute', accel: s.hotMute }, { id: 'deafen', accel: s.hotDeafen }].filter((x) => x.accel) : [];
+    const ok = await native.setGlobalHotkeys(list).catch(() => []);
+    if (report && list.length && ok.length < list.length) C.toast('Часть сочетаний занята другой программой, выберите другие');
+  }
+
+  // Короткий сигнал при переключении микрофона глобальной клавишей: в игре окна не видно.
+  function beep(freq) {
+    try {
+      audioCtx = audioCtx || new AudioContext();
+      const t0 = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.08, t0 + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t0); osc.stop(t0 + 0.14);
+    } catch (e) { /* звук недоступен */ }
+  }
+
+  function onHotkey(id) {
+    const v = S.voice;
+    if (!v || !v.inChannel) return;
+    if (id === 'mute') { v.setMuted(!v.muted); beep(v.muted ? 330 : 660); }
+    if (id === 'deafen') { v.setDeafened(!v.deafened); beep(v.deafened ? 260 : 720); }
   }
 
   function sectionStream() {
@@ -1762,6 +2147,12 @@
       switchRow('Когда кто-то начинает играть', S.settings.notifyPlaying, (v) => { S.settings.notifyPlaying = v; saveSettings(); }),
       switchRow('Когда кто-то заходит в сеть или выключает невидимку', S.settings.notifyOnline, (v) => { S.settings.notifyOnline = v; saveSettings(); }),
       switchRow('Звук', S.settings.notifySound, (v) => { S.settings.notifySound = v; saveSettings(); }),
+      h('label', { class: 'lbl' }, 'Сообщения'),
+      field('Уведомлять о сообщениях в каналах', select([['mentions', 'Только упоминания и ответы мне'], ['all', 'Обо всех (кроме выключенных каналов)'], ['none', 'Никогда']], S.settings.notifyMessages, (v) => { S.settings.notifyMessages = v; saveSettings(); }),
+        'Когда окно свёрнуто или в фоне — уведомление Windows и мигание на панели задач. Канал можно выключить правым кликом по нему.'),
+      switchRow('Уведомлять о личных сообщениях', S.settings.notifyDm, (v) => { S.settings.notifyDm = v; saveSettings(); }),
+      switchRow('Показывать текст сообщения в уведомлении', S.settings.notifyPreview, (v) => { S.settings.notifyPreview = v; saveSettings(); }, 'Выключите, если за экраном могут подсматривать.'),
+      h('div', { class: 'row', style: { marginTop: '14px' } }, h('button', { class: 'btn', onclick: () => native.notify({ title: 'corsa-mess', body: 'Так выглядит уведомление о сообщении', silent: true }) }, 'Показать уведомление Windows')),
       h('div', { class: 'row', style: { marginTop: '14px' } },
         h('button', { class: 'btn', onclick: () => showPresenceNote({ ...S.profile, sid: '', status: 'online', activity: { name: 'Rust' } }, 'playing') }, 'Показать «играет»'),
         h('button', { class: 'btn', onclick: () => showPresenceNote({ ...S.profile, sid: '', status: 'online', activity: null }, 'online') }, 'Показать «в сети»')));
@@ -2024,6 +2415,18 @@
     S.detected = await native.presenceNow();
     updateActivity();
     startIdleWatch();
+    // Клик по уведомлению Windows открывает канал или беседу.
+    native.onNotifyClick((tag) => {
+      if (!S.conn) return;
+      if (tag.startsWith('ch:')) { const id = tag.slice(3); if (S.conn.room.channels.find((c) => c.id === id)) { S.view = { type: 'text', channel: id }; S.unread[id] = 0; S.mentions[id] = 0; updateTitle(); renderAll(); } }
+      else if (tag.startsWith('dm:')) openDm(tag.slice(3));
+    });
+    native.onHotkey(onHotkey);
+    applyGlobalHotkeys();
+    window.addEventListener('focus', () => native.attention(false).catch(() => {}));
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && !e.shiftKey && e.code === 'KeyF' && S.view.type === 'text') { const s = document.querySelector('.head-search'); if (s) { e.preventDefault(); s.focus(); s.select(); } }
+    });
   }
 
   start();

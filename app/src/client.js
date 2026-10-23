@@ -92,6 +92,7 @@
           this.room = m.room;
           this.members = new Map(m.members.map((x) => [x.sid, x]));
           this.history = new Map(Object.entries(m.history));
+          this.pins = new Map(Object.entries(m.pins || {}));
           this.voice = m.voice;
           this.emit('welcome');
           break;
@@ -138,6 +139,16 @@
         }
         case 'typing':
           this.emit('typing', m.channel, m.sid);
+          break;
+        case 'pins': {
+          this.pins.set(m.channel, m.pins || []);
+          const msg = (this.history.get(m.channel) || []).find((x) => x.id === m.id);
+          if (msg) msg.pinned = m.pinned;
+          this.emit('pins', m.channel, m.id);
+          break;
+        }
+        case 'dm':
+          this.emit('dm', m.msg);
           break;
         case 'pong':
           if (Number.isFinite(m.ts)) { this.ping = Math.max(0, Math.round(performance.now() - m.ts)); this.emit('ping', this.ping); }

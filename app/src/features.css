@@ -7,6 +7,56 @@
 .userbar .icon-btn { width: 28px; height: 30px; font-size: 15px; flex: none; }
 .userbar .who { min-width: 90px; }
 
+/* ---------- Личные сообщения, упоминания, закрепы, поиск ---------- */
+.dm-nav { padding-top: 5px; padding-bottom: 5px; }
+.dm-nav .avatar { width: 26px; height: 26px; font-size: 11px; }
+.dm-nav .dot { width: 9px; height: 9px; }
+.dm-x { margin-left: auto; border: 0; background: transparent; color: var(--muted); cursor: pointer; border-radius: 6px; width: 22px; height: 22px; display: none; }
+.dm-nav:hover .dm-x { display: block; }
+.dm-nav .badge + .dm-x { margin-left: 4px; }
+.dm-x:hover { background: var(--fill-hi); color: var(--text); }
+.nav .badge.mention { background: #f23f43; }
+.muted-ic { margin-left: auto; font-size: 11px; opacity: .6; }
+.pin-mark { font-size: 11px; margin-left: 4px; }
+.pin-btn { width: auto; padding: 0 8px; gap: 3px; display: inline-flex; align-items: center; font-size: 14px; }
+.pin-btn span { font-size: 11px; color: var(--muted); }
+.head-search { width: 170px; padding: 5px 10px; font-size: 13px; transition: width .2s; }
+.head-search:focus { width: 240px; }
+.head-pop { position: fixed; z-index: 75; width: 380px; max-height: 60vh; overflow-y: auto; background: var(--bg-2); border-radius: var(--r); padding: 6px; box-shadow: 0 0 0 1px var(--line), 0 14px 40px var(--shadow-c); animation: pop .16s both; }
+.hp-title { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 6px 8px; }
+.hp-item { padding: 8px; border-radius: var(--r-sm); cursor: pointer; }
+.hp-item:hover { background: var(--fill); }
+.hp-head { display: flex; gap: 8px; align-items: center; }
+.hp-head .time { font-size: 11px; color: var(--muted); }
+.hp-head .icon-btn { margin-left: auto; width: 24px; height: 24px; font-size: 12px; }
+.hp-text { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.hp-item .sticker { width: 90px; }
+.blocked-msg .hint { cursor: pointer; padding-left: 44px; }
+.blocked-msg .hint:hover { color: var(--text); }
+.friend-row .icon-btn { opacity: .7; }
+.friend-row:hover .icon-btn { opacity: 1; }
+.main-head .avatar { width: 26px; height: 26px; font-size: 11px; }
+
+/* ---------- Микрофон: уровень и порог, клавиши ---------- */
+.mic-meter { margin-top: 10px; }
+.mm-bar { position: relative; height: 10px; border-radius: 5px; background: var(--fill-hi); overflow: hidden; margin-bottom: 6px; }
+.mm-bar i { display: block; height: 100%; width: 0; background: var(--muted); transition: width .06s linear; }
+.mm-bar i.open { background: var(--online); }
+.mm-bar b { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1px; background: var(--warn); border-radius: 2px; }
+.mic-meter .row { justify-content: space-between; }
+.input.hotkey { font-family: Consolas, 'Cascadia Mono', monospace; cursor: pointer; text-align: center; }
+.input.hotkey:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* ---------- Звуковая панель ---------- */
+.sb-pop { position: fixed; z-index: 75; width: 360px; background: var(--bg-2); border-radius: var(--r); padding: 8px; box-shadow: 0 0 0 1px var(--line), 0 14px 40px var(--shadow-c); animation: pop .16s both; }
+.sb-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; max-height: 300px; overflow-y: auto; }
+.sb-item { position: relative; border: 0; cursor: pointer; text-align: left; padding: 9px 10px; border-radius: var(--r-sm); background: var(--panel); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .15s, transform .1s; }
+.sb-item:hover { background: var(--panel-hi); }
+.sb-item:active { transform: scale(.96); }
+.sb-item.playing { box-shadow: inset 0 0 0 2px var(--online); }
+.sb-x { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: none; padding: 0 5px; border-radius: 5px; background: var(--bg-0); font-size: 11px; }
+.sb-item:hover .sb-x { display: block; }
+
 /* ---------- Плотность ---------- */
 body.dense-compact .msg { padding-top: 1px; padding-bottom: 1px; }
 body.dense-compact .messages { gap: 0; }

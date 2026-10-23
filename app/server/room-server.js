@@ -118,6 +118,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
   }
   const history = new Map(channels.filter((c) => c.type === 'text').map((c) => [c.id, []]));
   const firstSeen = new Map(); // публичный id -> когда впервые зашёл
+  const pins = new Map(); // канал -> закреплённые сообщения (копии, до 50)
   const members = new Map(); // sid -> member
   let wss = null;
   let saveTimer = null;
@@ -132,10 +133,11 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
     if (saved.__room) {
       room.banner = sanitizeImageUrl(saved.__room.banner);
       for (const [id, ts] of Object.entries(saved.__room.seen || {})) if (/^[0-9a-f]{16}$/.test(id) && Number.isFinite(ts)) firstSeen.set(id, ts);
+      for (const [ch, list] of Object.entries(saved.__room.pins || {})) if (history.has(ch) && Array.isArray(list)) pins.set(ch, list.slice(-50));
     }
   }
 
-  const snapshot = () => JSON.stringify({ ...Object.fromEntries(history), __room: { banner: room.banner, channels, seen: Object.fromEntries([...firstSeen].slice(-500)) } });
+  const snapshot = () => JSON.stringify({ ...Object.fromEntries(history), __room: { banner: room.banner, channels, seen: Object.fromEntries([...firstSeen].slice(-500)), pins: Object.fromEntries(pins) } });
   const roomInfo = () => ({ name: room.name, banner: room.banner, channels });
   const findMsg = (channel, id) => (history.get(channel) || []).find((x) => x.id === id);
 
@@ -238,6 +240,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       if (ch.type === 'text' && channels.filter((c) => c.type === 'text').length <= 1) return false;
       channels.splice(idx, 1);
       history.delete(ch.id);
+      pins.delete(ch.id);
       for (const mem of members.values()) if (mem.voice === ch.id) { mem.voice = null; mem.screen = false; mem.watching = null; }
       return true;
     }
@@ -290,7 +293,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       t: 'welcome', sid: m.sid, me: pid, owner: isOwner(m),
       room: roomInfo(),
       members: [...members.values()].map(pub),
-      history: Object.fromEntries(history), voice: voiceState(),
+      history: Object.fromEntries(history), voice: voiceState(), pins: Object.fromEntries(pins),
     });
     broadcast({ t: 'member', member: pub(m) });
     log(`${m.name} вошёл`);
@@ -383,6 +386,12 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         list.splice(list.indexOf(target), 1);
         saveHistory();
         broadcast({ t: 'delete', channel: msg.channel, id: target.id, by: m.sid });
+        // Удалённое сообщение снимается и с закрепа.
+        const pl = pins.get(msg.channel) || [];
+        if (pl.some((x) => x.id === target.id)) {
+          pins.set(msg.channel, pl.filter((x) => x.id !== target.id));
+          broadcast({ t: 'pins', channel: msg.channel, pins: pins.get(msg.channel), id: target.id, pinned: null });
+        }
         break;
       }
       case 'react': {
@@ -407,6 +416,43 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         target.reactions = reactions;
         saveHistory();
         broadcast({ t: 'react', channel: msg.channel, id: target.id, reactions, remoji: target.remoji || {} });
+        break;
+      }
+      case 'pin': {
+        // Закрепить может автор сообщения или владелец. Хранится копия: закреп переживёт старую историю.
+        const target = findMsg(msg.channel, msg.id);
+        if (!target || (target.uid !== pubId(m.uid) && !isOwner(m))) return;
+        const list = pins.get(msg.channel) || [];
+        const i = list.findIndex((x) => x.id === target.id);
+        if (msg.on === false) { if (i < 0) return; list.splice(i, 1); target.pinned = null; }
+        else {
+          if (i >= 0) return;
+          target.pinned = Date.now();
+          list.push({ id: target.id, uid: target.uid, name: target.name, avatar: target.avatar, text: target.text, sticker: target.sticker, emojis: target.emojis, ts: target.ts, pinnedAt: target.pinned, by: m.name });
+          if (list.length > 50) list.shift();
+        }
+        pins.set(msg.channel, list);
+        saveHistory();
+        broadcast({ t: 'pins', channel: msg.channel, pins: list, id: target.id, pinned: target.pinned || null });
+        break;
+      }
+      case 'dm': {
+        // Личное сообщение: сервер только пересылает его двоим и нигде не хранит.
+        const target = members.get(msg.to);
+        if (!target || target === m) return;
+        const now = Date.now();
+        m.stamps = m.stamps.filter((s) => now - s < RATE_WINDOW_MS);
+        if (m.stamps.length >= RATE_MAX) { send(ws, { t: 'error', text: 'Слишком быстро' }); return; }
+        m.stamps.push(now);
+        const text = str(msg.text, MAX_TEXT).trim();
+        const sticker = sanitizeImageUrl(msg.sticker);
+        if (!text && !sticker) return;
+        const out = {
+          id: crypto.randomUUID().slice(0, 12), from: m.sid, to: target.sid, uid: pubId(m.uid), toUid: pubId(target.uid),
+          name: m.name, avatar: m.avatar, text, sticker, emojis: cleanEmojis(msg.emojis, text), ts: now,
+        };
+        send(target.ws, { t: 'dm', msg: out });
+        send(ws, { t: 'dm', msg: out });
         break;
       }
       case 'typing': {

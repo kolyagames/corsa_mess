@@ -459,6 +459,47 @@ async function testChat() {
   await srv.stop();
 }
 
+// Личные сообщения доходят только двоим и не сохраняются; закреп — автор или владелец, снимается при удалении.
+async function testDmPins() {
+  const file = path.join(os.tmpdir(), `corsa-dm-${Date.now()}.json`);
+  const srv = createRoomServer({ name: 'лс', port: 0, ownerUid: 'own', historyFile: file });
+  const port = await srv.start();
+  const join = async (uid, name) => { const ws = await connect(port); ws.send(JSON.stringify({ t: 'hello', uid, name })); return [ws, await ws.next((m) => m.t === 'welcome')]; };
+  const [a, wa] = await join('own', 'Хозяин');
+  const [b, wb] = await join('bob', 'Боб');
+  const [c] = await join('cat', 'Кот');
+  b.send(JSON.stringify({ t: 'dm', to: wa.sid, text: 'секрет', sticker: 'https://evil.com/x.png' }));
+  const got = (await a.next((m) => m.t === 'dm')).msg;
+  assert.deepStrictEqual({ text: got.text, sticker: got.sticker, from: got.from, to: got.to }, { text: 'секрет', sticker: null, from: wb.sid, to: wa.sid });
+  assert.strictEqual((await b.next((m) => m.t === 'dm')).msg.id, got.id, 'отправитель получает копию');
+  await assert.rejects(c.next((m) => m.t === 'dm', 300), /таймаут/, 'третьему личное сообщение не приходит');
+  b.send(JSON.stringify({ t: 'dm', to: wb.sid, text: 'себе' }));
+  await assert.rejects(b.next((m) => m.t === 'dm', 300), /таймаут/, 'себе написать нельзя');
+
+  a.send(JSON.stringify({ t: 'msg', channel: 'general', text: 'важное' }));
+  const msg = (await b.next((m) => m.t === 'msg' && m.msg.text === 'важное')).msg;
+  b.send(JSON.stringify({ t: 'pin', channel: 'general', id: msg.id }));
+  await assert.rejects(b.next((m) => m.t === 'pins', 300), /таймаут/, 'чужое сообщение гость не закрепит');
+  a.send(JSON.stringify({ t: 'pin', channel: 'general', id: msg.id }));
+  const pinned = await c.next((m) => m.t === 'pins');
+  assert.strictEqual(pinned.pins.length, 1);
+  assert.ok(pinned.pinned);
+  await srv.stop();
+  assert.ok(!fs.readFileSync(file, 'utf8').includes('секрет'), 'личные сообщения не попадают в файл истории');
+  const srv2 = createRoomServer({ name: 'лс', port: 0, ownerUid: 'own', historyFile: file });
+  const port2 = await srv2.start();
+  const d = await connect(port2);
+  d.send(JSON.stringify({ t: 'hello', uid: 'own', name: 'Хозяин' }));
+  const w2 = await d.next((m) => m.t === 'welcome');
+  assert.strictEqual(w2.pins.general.length, 1, 'закреп переживает перезапуск');
+  d.send(JSON.stringify({ t: 'delete', channel: 'general', id: msg.id }));
+  const un = await d.next((m) => m.t === 'pins');
+  assert.strictEqual(un.pins.length, 0, 'удалённое сообщение снимается с закрепа');
+  d.close();
+  await srv2.stop();
+  fs.unlinkSync(file);
+}
+
 // Поиск комнат в локальной сети: ответ приходит на запрос, сведения о комнате верные.
 async function testLan() {
   const lan = require('../server/lan');
@@ -481,5 +522,6 @@ async function testLan() {
   await testSecurity(); console.log('ok  защита: пароль, лимиты, бан, TLS');
   await testUpnp(); console.log('ok  UPnP на макете роутера');
   await testChat(); console.log('ok  каналы, ответы, правка, реакции, «печатает…», профиль');
+  await testDmPins(); console.log('ok  личные сообщения и закрепы');
   await testLan(); console.log('ok  поиск комнат в локальной сети');
 })().catch((e) => { console.error('ПРОВАЛ:', e); process.exit(1); });

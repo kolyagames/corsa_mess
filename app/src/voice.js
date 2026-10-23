@@ -58,8 +58,9 @@
         },
       });
       this.channel = channel;
+      await this.buildSendGraph();
       this.applyMute();
-      this.watch('me', this.micStream);
+      this.watch('me', this.sendStream);
       if (!this.timer) this.timer = setInterval(() => this.poll(), 100);
       if (!this.statsTimer) this.statsTimer = setInterval(() => this.collectStats(), 2000);
       this.joinedAt = Date.now();
@@ -89,12 +90,64 @@
       if (this.peers.size) this.onChange(true);
     }
 
+    // Что уходит собеседникам: микрофон → шумовой порог → выключение микрофона → смеситель (+ звуковая панель).
+    // Обработка эха и шума уже сделана при захвате, здесь только порог и смешивание.
+    async buildSendGraph() {
+      if (!this.ctx) this.ctx = new AudioContext({ latencyHint: 'interactive' });
+      const ctx = this.ctx;
+      if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+      if (this.workletOk === undefined) {
+        try { await ctx.audioWorklet.addModule('gate-worklet.js'); this.workletOk = true; } catch (e) { this.workletOk = false; }
+      }
+      const src = ctx.createMediaStreamSource(this.micStream);
+      const dest = ctx.createMediaStreamDestination();
+      dest.channelCount = 2;
+      this.gate = this.workletOk ? new AudioWorkletNode(ctx, 'corsa-gate', { outputChannelCount: [2] }) : ctx.createGain();
+      if (this.workletOk) this.gate.port.onmessage = (e) => { this.micLevel = e.data; };
+      this.muteGain = ctx.createGain();
+      this.fxBus = ctx.createGain();
+      this.monitor = ctx.createGain();
+      src.connect(this.gate).connect(this.muteGain).connect(dest);
+      this.fxBus.connect(dest);
+      this.monitor.connect(ctx.destination);
+      this.graph = { src, dest };
+      this.sendStream = dest.stream;
+      this.applyGate();
+    }
+
+    applyGate() {
+      if (!this.gate || !this.workletOk) return;
+      const db = this.getSettings().gateDb;
+      this.gate.parameters.get('threshold').value = Number.isFinite(db) ? db : -100;
+    }
+
+    teardownGraph() {
+      if (!this.graph) return;
+      for (const n of [this.graph.src, this.gate, this.muteGain, this.fxBus, this.monitor]) { try { n.disconnect(); } catch (e) { /* уже отключён */ } }
+      this.graph = null; this.gate = null; this.muteGain = null; this.fxBus = null; this.monitor = null; this.sendStream = null; this.micLevel = null;
+    }
+
+    // Звуковая панель: звук слышат все в канале и вы сами.
+    playSound(buffer, volume = 1) {
+      if (!this.channel || !this.fxBus || !buffer) return false;
+      const s = this.ctx.createBufferSource();
+      s.buffer = buffer;
+      const g = this.ctx.createGain();
+      g.gain.value = Math.max(0, Math.min(1.5, volume));
+      s.connect(g);
+      g.connect(this.fxBus);
+      g.connect(this.monitor);
+      s.start();
+      return true;
+    }
+
     sendFlags(extra) { this.client.send({ t: 'voice-flags', muted: this.muted, deaf: this.deafened, ...extra }); }
 
     async leave() {
       if (!this.channel) return;
       this.stopScreen(false);
       for (const sid of [...this.peers.keys()]) this.closePeer(sid);
+      this.teardownGraph();
       if (this.micStream) this.micStream.getTracks().forEach((t) => t.stop());
       this.micStream = null;
       this.analysers.clear();
@@ -110,7 +163,10 @@
     }
 
     applyMute() {
-      if (this.micStream) this.micStream.getAudioTracks().forEach((t) => { t.enabled = !this.muted && !this.deafened; });
+      const off = this.muted || this.deafened;
+      if (this.muteGain) this.muteGain.gain.value = off ? 0 : 1;
+      else if (this.micStream) this.micStream.getAudioTracks().forEach((t) => { t.enabled = !off; });
+      if (this.monitor) this.monitor.gain.value = this.deafened ? 0 : 1;
     }
 
     setMuted(v) { this.muted = v; this.applyMute(); if (this.channel) this.sendFlags(); this.onChange(); }
@@ -150,7 +206,8 @@
       peer.watchdog = setTimeout(() => {
         if (this.peers.get(sid) === peer && pc.connectionState !== 'connected') this.recover(sid, peer.retries);
       }, 15000);
-      if (this.micStream) for (const t of this.micStream.getTracks()) peer.senders.set(t.id, pc.addTrack(t, this.micStream));
+      const voiceOut = this.sendStream || this.micStream;
+      if (voiceOut) for (const t of voiceOut.getTracks()) peer.senders.set(t.id, pc.addTrack(t, voiceOut));
       if (this.screenStream) for (const t of this.screenStream.getTracks()) peer.senders.set(t.id, pc.addTrack(t, this.screenStream));
 
       pc.onicecandidate = (e) => { if (e.candidate) this.client.send({ t: 'rtc', to: sid, data: { candidate: e.candidate } }); };

@@ -30,6 +30,22 @@ contextBridge.exposeInMainWorld('corsaNative', {
   },
   migrationScan: () => ipcRenderer.invoke('migrate:scan'),
   setTitleBar: (c) => ipcRenderer.invoke('window:titlebar', c),
+  notify: (n) => ipcRenderer.invoke('notify:show', n),
+  onNotifyClick: (cb) => {
+    const fn = (e, tag) => cb(tag);
+    ipcRenderer.on('notify:click', fn);
+    return () => ipcRenderer.removeListener('notify:click', fn);
+  },
+  attention: (on) => ipcRenderer.invoke('win:attention', !!on),
+  setGlobalHotkeys: (list) => ipcRenderer.invoke('hotkeys:global', list),
+  onHotkey: (cb) => {
+    const fn = (e, id) => cb(id);
+    ipcRenderer.on('hotkey', fn);
+    return () => ipcRenderer.removeListener('hotkey', fn);
+  },
+  soundsList: () => ipcRenderer.invoke('sounds:list'),
+  soundsImport: () => ipcRenderer.invoke('sounds:import'),
+  soundsRemove: (file) => ipcRenderer.invoke('sounds:remove', file),
   exportFiles: (files) => ipcRenderer.invoke('files:export', files),
   importFiles: () => ipcRenderer.invoke('files:import'),
   presenceNow: () => ipcRenderer.invoke('presence:detect'),

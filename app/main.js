@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, protocol, session, desktopCapturer, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, session, desktopCapturer, shell, dialog, Notification, globalShortcut } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -27,7 +27,12 @@ const APP_ORIGIN = 'corsa://app';
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2',
+  '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.webm': 'audio/webm',
 };
+const SOUND_EXT = /\.(mp3|ogg|wav|m4a|webm)$/i;
+
+// Уведомления Windows показываются от имени приложения, а не «Electron».
+if (process.platform === 'win32') app.setAppUserModelId('corsa-mess');
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'corsa', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
@@ -59,6 +64,7 @@ ipcMain.handle = (channel, fn) => rawHandle(channel, (e, ...args) => {
 const userDir = () => app.getPath('userData');
 const pluginsDir = () => path.join(userDir(), 'plugins');
 const themesDir = () => path.join(userDir(), 'themes');
+const soundsDir = () => path.join(userDir(), 'sounds');
 
 function csp() {
   const hosts = Allowlist.cspHosts();
@@ -90,6 +96,7 @@ function serveCorsa(request) {
     shared: path.join(__dirname, 'shared'),
     plugins: pluginsDir(),
     themes: themesDir(),
+    sounds: soundsDir(),
   };
   const root = roots[url.hostname];
   if (!root) return new Response('not found', { status: 404 });
@@ -209,6 +216,7 @@ function createWindow() {
     },
   });
   win.setMenuBarVisibility(false);
+  win.on('focus', () => win.flashFrame(false));
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   win.webContents.on('will-attach-webview', (e) => e.preventDefault());
@@ -336,6 +344,62 @@ function setupIpc() {
   });
   ipcMain.handle('media:cmd', (e, cmd) => { if (media) media.command(String(cmd)); return true; });
   ipcMain.handle('migrate:scan', () => migrationScan());
+  // Уведомление Windows о сообщении. По клику окно выходит вперёд и открывает нужный канал или беседу.
+  const notes = new Set();
+  ipcMain.handle('notify:show', (e, n) => {
+    if (!Notification.isSupported() || !n) return false;
+    const note = new Notification({ title: String(n.title || 'corsa-mess').slice(0, 80), body: String(n.body || '').slice(0, 240), icon: path.join(__dirname, 'src', 'logo.png'), silent: !!n.silent });
+    notes.add(note);
+    const done = () => notes.delete(note);
+    note.on('close', done);
+    note.on('click', () => {
+      done();
+      if (!win || win.isDestroyed()) return;
+      if (win.isMinimized()) win.restore();
+      win.show(); win.focus();
+      tellUi('notify:click', String(n.tag || '').slice(0, 80));
+    });
+    note.show();
+    return true;
+  });
+  // Мигание кнопки на панели задач, пока окно не в фокусе.
+  ipcMain.handle('win:attention', (e, on) => { if (win && !win.isDestroyed() && (!on || !win.isFocused())) win.flashFrame(!!on); return true; });
+  // Глобальные клавиши (работают и в игре): [{id, accel}]. Пустой список снимает все.
+  ipcMain.handle('hotkeys:global', (e, list) => {
+    globalShortcut.unregisterAll();
+    const ok = [];
+    for (const k of Array.isArray(list) ? list.slice(0, 8) : []) {
+      const accel = String(k && k.accel || '');
+      const id = String(k && k.id || '').slice(0, 32);
+      if (!/^[A-Za-z0-9+]{1,40}$/.test(accel) || !id) continue;
+      try { if (globalShortcut.register(accel, () => tellUi('hotkey', id))) ok.push(id); } catch (err) { /* сочетание занято другой программой */ }
+    }
+    return ok;
+  });
+  // Звуки для звуковой панели: свои файлы копируются в папку данных и отдаются как corsa://sounds/…
+  const listSounds = () => (fs.existsSync(soundsDir()) ? fs.readdirSync(soundsDir()).filter((f) => SOUND_EXT.test(f)) : [])
+    .map((file) => ({ file, name: file.replace(SOUND_EXT, ''), url: 'corsa://sounds/' + encodeURIComponent(file) }));
+  ipcMain.handle('sounds:list', () => listSounds());
+  ipcMain.handle('sounds:import', async () => {
+    const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Звук', extensions: ['mp3', 'ogg', 'wav', 'm4a', 'webm'] }] });
+    if (r.canceled) return { list: listSounds(), skipped: 0 };
+    fs.mkdirSync(soundsDir(), { recursive: true });
+    let skipped = 0;
+    for (const p of r.filePaths.slice(0, 40)) {
+      const ext = (path.extname(p).match(SOUND_EXT) || [''])[0].toLowerCase();
+      if (!ext || fs.statSync(p).size > 3 * 1024 * 1024) { skipped++; continue; }
+      const base = path.basename(p, path.extname(p)).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/^\.+/, '').trim().slice(0, 40) || 'sound';
+      let name = base;
+      for (let k = 2; fs.existsSync(path.join(soundsDir(), name + ext)); k++) name = `${base} (${k})`;
+      fs.copyFileSync(p, path.join(soundsDir(), name + ext));
+    }
+    return { list: listSounds(), skipped };
+  });
+  ipcMain.handle('sounds:remove', (e, file) => {
+    const full = resolveSafe(soundsDir(), String(file));
+    if (full && SOUND_EXT.test(full) && fs.existsSync(full)) fs.unlinkSync(full);
+    return listSounds();
+  });
   // Цвет кнопок окна под дизайн (светлый или тёмный).
   ipcMain.handle('window:titlebar', (e, c) => {
     const ok = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
@@ -428,6 +492,8 @@ app.whenReady().then(() => {
   bridge = startPresenceBridge({ onChange: (a) => win && !win.isDestroyed() && win.webContents.send('presence:change', a) });
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
+
+app.on('will-quit', () => globalShortcut.unregisterAll());
 
 app.on('window-all-closed', async () => {
   if (bridge) bridge.stop();

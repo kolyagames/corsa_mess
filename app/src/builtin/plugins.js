@@ -385,6 +385,122 @@
     },
   });
 
+  // Встроенные звуки для звуковой панели: всё синтезируется кодом, чужих записей нет.
+  function noiseBuffer(ctx, sec) {
+    const b = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * sec), ctx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return b;
+  }
+  function tone(ctx, { type = 'sine', freq, to, at = 0, dur, vol = 0.3, attack = 0.01, out = ctx.destination }) {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, at);
+    if (to) o.frequency.exponentialRampToValueAtTime(to, at + dur);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(vol, at + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    o.connect(g).connect(out);
+    o.start(at); o.stop(at + dur + 0.02);
+    return o;
+  }
+  function noiseHit(ctx, { at = 0, dur, vol = 0.3, filter = 'highpass', freq = 6000, q = 0.7 }) {
+    const s = ctx.createBufferSource();
+    s.buffer = noiseBuffer(ctx, dur + 0.05);
+    const f = ctx.createBiquadFilter();
+    f.type = filter; f.frequency.value = freq; f.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(vol, at + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    s.connect(f).connect(g).connect(ctx.destination);
+    s.start(at); s.stop(at + dur + 0.05);
+  }
+  const SOUNDS = [
+    { key: 'horn', name: '📯 Горн', dur: 1.6, make(ctx) {
+      for (const [at, d] of [[0, 0.22], [0.3, 0.18], [0.55, 0.95]]) for (const f of [415, 622, 830]) tone(ctx, { type: 'sawtooth', freq: f, at, dur: d, vol: 0.09, attack: 0.02 });
+    } },
+    { key: 'rimshot', name: '🥁 Ба-дум-тсс', dur: 1.6, make(ctx) {
+      tone(ctx, { freq: 180, to: 60, at: 0, dur: 0.25, vol: 0.6 });
+      tone(ctx, { freq: 260, to: 120, at: 0.22, dur: 0.2, vol: 0.45 });
+      noiseHit(ctx, { at: 0.5, dur: 1.05, vol: 0.32, freq: 7000 });
+    } },
+    { key: 'applause', name: '👏 Аплодисменты', dur: 2.8, make(ctx) {
+      for (let i = 0; i < 160; i++) noiseHit(ctx, { at: Math.random() * 2.3, dur: 0.06 + Math.random() * 0.05, vol: 0.12 + Math.random() * 0.1, filter: 'bandpass', freq: 1500 + Math.random() * 2500, q: 1.2 });
+    } },
+    { key: 'bell', name: '🔔 Дзынь', dur: 1.8, make(ctx) {
+      for (const [f, v] of [[880, 0.3], [1772, 0.14], [2650, 0.08], [3540, 0.04]]) tone(ctx, { freq: f, at: 0, dur: 1.7, vol: v, attack: 0.003 });
+    } },
+    { key: 'bloop', name: '💧 Бульк', dur: 0.4, make(ctx) { tone(ctx, { freq: 220, to: 980, at: 0, dur: 0.16, vol: 0.4, attack: 0.005 }); } },
+    { key: 'fanfare', name: '🎺 Фанфары', dur: 1.5, make(ctx) {
+      [523, 659, 784].forEach((f, i) => tone(ctx, { type: 'square', freq: f, at: i * 0.13, dur: 0.12, vol: 0.12 }));
+      for (const f of [1047, 784, 523]) tone(ctx, { type: 'square', freq: f, at: 0.42, dur: 0.95, vol: 0.08 });
+    } },
+    { key: 'fail', name: '🎷 Провал', dur: 2.6, make(ctx) {
+      [392, 370, 349].forEach((f, i) => tone(ctx, { type: 'sawtooth', freq: f, at: i * 0.45, dur: 0.4, vol: 0.14, attack: 0.03 }));
+      const o = tone(ctx, { type: 'sawtooth', freq: 330, at: 1.35, dur: 1.2, vol: 0.14, attack: 0.03 });
+      const lfo = ctx.createOscillator(); const depth = ctx.createGain();
+      lfo.frequency.value = 6; depth.gain.value = 9;
+      lfo.connect(depth).connect(o.frequency); lfo.start(1.5); lfo.stop(2.6);
+    } },
+  ];
+  async function renderSound(snd) {
+    const ctx = new OfflineAudioContext(2, Math.ceil(48000 * snd.dur), 48000);
+    snd.make(ctx);
+    return ctx.startRendering();
+  }
+
+  def({
+    id: 'soundboard', name: 'Звуковая панель', category: 'Голос и стрим', origin: 'Vencord: NitroSoundpad', defaultOn: true,
+    description: 'Кнопка «🔊 Звуки» в голосовом канале: звук слышат все в канале. Есть встроенные звуки, можно добавить свои файлы (mp3, ogg, wav до 3 МБ).',
+    settings: [{ key: 'volume', type: 'range', label: 'Громкость звуков', min: 5, max: 100, default: 60, unit: '%' }],
+    start(api) {
+      const cache = new Map();
+      let last = 0;
+      const play = async (snd, btnEl) => {
+        const v = api.app.voice();
+        if (!v || !v.inChannel) { api.toast('Сначала зайдите в голосовой канал'); return; }
+        if (Date.now() - last < 400) return;
+        last = Date.now();
+        try {
+          let buf = cache.get(snd.key);
+          if (!buf) {
+            buf = snd.make ? await renderSound(snd) : await v.ctx.decodeAudioData(await (await fetch(snd.url)).arrayBuffer());
+            cache.set(snd.key, buf);
+          }
+          v.playSound(buf, api.settings.volume / 100);
+          if (btnEl) { btnEl.classList.add('playing'); setTimeout(() => btnEl.classList.remove('playing'), Math.min(1500, buf.duration * 1000)); }
+        } catch (e) { api.toast('Не удалось проиграть звук: ' + e.message); }
+      };
+      const open = async (anchor) => {
+        document.querySelectorAll('.sb-pop').forEach((x) => x.remove());
+        const pop = h('div', { class: 'sb-pop' });
+        const draw = async () => {
+          const own = await native.soundsList().catch(() => []);
+          const item = (snd, removable) => {
+            const b = h('button', { class: 'sb-item', title: snd.name, onclick: () => play(snd, b) }, snd.name,
+              removable ? h('span', { class: 'sb-x', title: 'Удалить', onclick: async (e) => { e.stopPropagation(); await native.soundsRemove(snd.file); cache.delete(snd.key); draw(); } }, '✕') : null);
+            return b;
+          };
+          pop.replaceChildren(h('div', { class: 'hp-title' }, 'Звуковая панель'),
+            h('div', { class: 'sb-grid' }, SOUNDS.map((s) => item(s, false)), own.map((f) => item({ key: 'f:' + f.file, name: '🎵 ' + f.name, url: f.url, file: f.file }, true))),
+            h('div', { class: 'row', style: { marginTop: '8px' } },
+              h('button', { class: 'btn', onclick: async () => { const r = await native.soundsImport(); if (r.skipped) api.toast(`Пропущено файлов: ${r.skipped} (больше 3 МБ или не звук)`); draw(); } }, '＋ Свои звуки'),
+              h('span', { class: 'hint' }, 'Слышат все в канале')));
+        };
+        await draw();
+        document.body.append(pop);
+        const r = anchor.getBoundingClientRect();
+        pop.style.left = Math.max(8, Math.min(r.left + r.width / 2 - pop.offsetWidth / 2, innerWidth - pop.offsetWidth - 8)) + 'px';
+        pop.style.top = Math.max(40, r.top - pop.offsetHeight - 10) + 'px';
+        const off = (ev) => { if (!pop.contains(ev.target) && !anchor.contains(ev.target)) { pop.remove(); document.removeEventListener('mousedown', off); } };
+        setTimeout(() => document.addEventListener('mousedown', off), 0);
+      };
+      api.decorate('voiceControls', () => h('button', { class: 'btn', title: 'Звуковая панель', onclick: (e) => open(e.currentTarget) }, '🔊 Звуки'));
+    },
+  });
+
   // ================= Комнаты =================
   def({
     id: 'nsfw-tag', name: 'Метка 18+', category: 'Комнаты', origin: 'BetterDiscord: BetterNsfwTag', defaultOn: true,
@@ -573,7 +689,7 @@
     BetterFolders: N('закреплённые комнаты отделяются сверху'), NoTrack: N('приложение не шлёт никакой статистики'), NoNitroAds: N('рекламы нет'),
     WebContextMenus: N('контекстные меню по правому клику'), WebScreenShareFixes: N('показ экрана до 4K и 120 кадров'), DisableDeepLinks: N('ссылки не открываются, а копируются'),
     CrashHandler: N('ошибки плагинов не роняют приложение'), Settings: N('свои настройки'), SupportHelper: X('служебный модуль Vencord'), FixDiscordCss: X('чинит стили Discord, здесь не нужен'),
-    NitroSoundpad: X('звуковой панели пока нет'), Translate: X('не перенесён: текст сообщений уходил бы стороннему переводчику'),
+    NitroSoundpad: P('soundboard'),Translate: X('не перенесён: текст сообщений уходил бы стороннему переводчику'),
     VoiceMessages: X('голосовых сообщений пока нет (нет загрузки файлов)'), VoiceDownload: X('голосовых сообщений пока нет'), AnonymiseFileNames: X('файлов нет, только ссылки'),
     iLoveSpam: X('спам-фильтра Discord здесь нет'), PermissionsViewer: X('ролей пока нет, права только у владельца'), PlainFolderIcon: X('папок нет, есть закреп'),
     YoutubeAdblock: X('встроенного YouTube нет'), NewsBanner: X('баннеров новостей Discord нет'), NoPendingCount: X('заявок в друзья нет'),

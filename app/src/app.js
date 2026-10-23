@@ -8,14 +8,38 @@
     accent: '#ff2a44', voiceProfile: 'isolation', echo: true, noise: true, agc: true, micId: 'default', speakerId: 'default',
     audioKbps: 128, screenRes: 1080, screenFps: 60, screenMbps: 8, screenPrefer: 'detail', screenAudio: true, stun: '', resolveNames: true, cursorGlow: true, glowPower: 55, animations: true,
     notifyPlaying: true, notifyOnline: true, notifySound: true,
+    // Вид приложения
+    design: 'neon', mode: 'dark', font: 'design', fontSize: 14, round: null, density: 'cozy', msgStyle: 'list', avatarShape: 'circle',
+    appBg: '', appBgDim: 55, appBgBlur: 0, showMembers: true, clock24: true, quickCss: '', groupMessages: true, gifHover: false,
+    // Сеть
+    lanVisible: true, lanScan: true, autoReconnect: true, lanBoost: true, lanScreenMbps: 40, autoIdle: true,
   };
-  const FRAMES = [['none', 'Нет'], ['neon', 'Неон'], ['gradient', 'Градиент'], ['rainbow', 'Радуга'], ['pulse', 'Пульс']];
-  const NAME_FX = [['none', 'Обычное'], ['glow', 'Свечение'], ['gradient', 'Градиент'], ['rainbow', 'Радуга']];
+  // Дизайны: свои названия и цвета, без чужих логотипов и фирменных шрифтов.
+  const DESIGNS = [
+    ['neon', 'Неон', 'Красный неон, свечение за курсором', '#ff2a44', 'dark'],
+    ['clay', 'Глина', 'Тёплая бумага, засечки, спокойные цвета', '#c8693f', 'light'],
+    ['expressive', 'Экспрессив', 'Крупные формы, тона от акцента, пружинные анимации', '#7c5cff', 'dark'],
+    ['glass', 'Стекло', 'Полупрозрачные панели с размытием, крупные заголовки', '#3b82f6', 'light'],
+  ];
+  const FRAMES = [['none', 'Нет'], ['neon', 'Неон'], ['gradient', 'Градиент'], ['rainbow', 'Радуга'], ['pulse', 'Пульс'], ['aura', 'Аура'], ['orbit', 'Орбита'], ['double', 'Двойная']];
+  const NAME_FX = [['none', 'Обычное'], ['glow', 'Свечение'], ['gradient', 'Градиент'], ['rainbow', 'Радуга'], ['shine', 'Блеск'], ['glitch', 'Глитч'], ['flicker', 'Мерцание']];
+  const NAME_FONTS = [['default', 'Обычный'], ['serif', 'С засечками'], ['mono', 'Моноширинный'], ['script', 'Рукописный'], ['heavy', 'Жирный'], ['wide', 'Разрядка']];
+  const EFFECTS = [['none', 'Нет'], ['snow', 'Снег'], ['sparkles', 'Искры'], ['hearts', 'Сердца'], ['embers', 'Угольки'], ['stars', 'Звёзды'], ['sakura', 'Сакура'], ['bubbles', 'Пузыри']];
+  const PLATES = [['none', 'Нет'], ['aurora', 'Сияние'], ['sunset', 'Закат'], ['ocean', 'Океан'], ['void', 'Пустота'], ['grid', 'Сетка'], ['candy', 'Конфета'], ['forest', 'Лес']];
+  const CARD_STYLES = [['default', 'Обычная'], ['glass', 'Стекло'], ['solid', 'Сплошная'], ['outline', 'Контур']];
+  const BADGES = {
+    early: ['🌱', 'Ранний'], gamer: ['🎮', 'Игрок'], music: ['🎵', 'Меломан'], dev: ['💻', 'Разработчик'], artist: ['🎨', 'Художник'], night: ['🌙', 'Сова'],
+    streamer: ['📺', 'Стример'], cat: ['🐱', 'Котик'], heart: ['💖', 'Добряк'], star: ['⭐', 'Звезда'], bolt: ['⚡', 'Быстрый'], skull: ['💀', 'Жуть'],
+  };
+  const STATUSES = [['online', '🟢', 'В сети'], ['idle', '🌙', 'Не на месте'], ['dnd', '⛔', 'Не беспокоить'], ['invisible', '⚫', 'Невидимка']];
+  const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🎉', '👀', '💯', '😎', '🙏', '✅'];
   const PROFILE_DEFAULTS = {
     name: 'Игрок', bio: '', avatar: '', banner: '', bg: '', color: '', frame: 'none', nameFx: 'none', tag: '', custom: '', pronouns: '',
-    frameUrl: '', cardFrame: '',
+    frameUrl: '', cardFrame: '', color2: '', nameColor: '', nameColor2: '', nameFont: 'default', effect: 'none', plate: 'none', plateUrl: '',
+    cardStyle: 'default', badges: [], links: [],
   };
-  const ACCENTS = ['#ff2a44', '#ff7a1a', '#ffc21a', '#2adf7a', '#2ab8ff', '#8a5cff', '#ff3ad1'];
+  const ACCENTS = ['#ff2a44', '#ff7a1a', '#ffc21a', '#2adf7a', '#2ab8ff', '#3b82f6', '#7c5cff', '#ff3ad1', '#c8693f'];
+  const HEX = /^#[0-9a-f]{6}$/i;
 
   let uid = store.get('uid');
   if (!uid) { uid = C.uuid(); store.set('uid', uid); }
@@ -28,6 +52,8 @@
     rooms: store.get('rooms', []),
     pickerTab: 'sticker', pickerCat: null, mgrCat: null,
     conn: null, voice: null, view: { type: 'home' }, hosting: null, activity: null, unread: {}, friendsTab: 'online',
+    detected: null, music: null, activityOverride: null, shareActivity: store.get('shareActivity', true), accentOverride: null,
+    typing: new Map(), replyTo: null, editing: null, lan: [], idle: false, watching: null, reconnect: null,
   };
 
   const saveProfile = () => store.set('profile', S.profile);
@@ -36,20 +62,32 @@
   // ---------- Вспомогательное ----------
   // Поля профиля, которые уходят на сервер и видны остальным.
   function profileFields(p) {
+    const col = (v) => (HEX.test(v || '') ? v : null);
     return {
       name: p.name, bio: p.bio, avatar: C.safeUrl(p.avatar), banner: C.safeUrl(p.banner), bg: C.safeUrl(p.bg),
-      color: /^#[0-9a-f]{6}$/i.test(p.color || '') ? p.color : null, frame: p.frame, nameFx: p.nameFx, tag: p.tag, custom: p.custom, pronouns: p.pronouns,
+      color: col(p.color), frame: p.frame, nameFx: p.nameFx, tag: p.tag, custom: p.custom, pronouns: p.pronouns,
       frameUrl: C.safeUrl(p.frameUrl), cardFrame: C.safeUrl(p.cardFrame),
+      color2: col(p.color2), nameColor: col(p.nameColor), nameColor2: col(p.nameColor2), nameFont: p.nameFont, effect: p.effect,
+      plate: p.plate, plateUrl: C.safeUrl(p.plateUrl), cardStyle: p.cardStyle, badges: p.badges || [], links: p.links || [],
     };
   }
 
-  // Имя с эффектом, цветом и тегом. В узких местах теги можно не показывать.
+  // Имя с эффектом, цветом, шрифтом и тегом. В узких местах теги можно не показывать.
   function nameEl(u, { tag = true, cls = '' } = {}) {
     const fx = u.nameFx && u.nameFx !== 'none' ? ' fx-' + u.nameFx : '';
-    const style = !fx && /^#[0-9a-f]{6}$/i.test(u.color || '') ? { color: u.color } : {};
-    return h('span', { class: cls }, h('span', { class: 'who-name' + fx, style }, u.name),
+    const font = u.nameFont && u.nameFont !== 'default' ? ' nf-' + u.nameFont : '';
+    let style = {};
+    let grad = '';
+    if (!fx) {
+      if (HEX.test(u.nameColor || '') && HEX.test(u.nameColor2 || '')) { style = { backgroundImage: `linear-gradient(90deg, ${u.nameColor}, ${u.nameColor2})` }; grad = ' name-grad'; }
+      else if (HEX.test(u.nameColor || '')) style = { color: u.nameColor };
+      else if (HEX.test(u.color || '')) style = { color: u.color };
+    }
+    return h('span', { class: cls }, h('span', { class: 'who-name' + fx + font + grad, style, dataset: { text: u.name || '' } }, u.name),
       tag && u.tag ? h('span', { class: 'tag' }, u.tag) : null);
   }
+
+  const dotClass = (s) => 'dot ' + (['online', 'idle', 'dnd'].includes(s) ? s : '');
 
   function avatarEl(u, { status, cls } = {}) {
     const frame = u.frame && u.frame !== 'none' ? ' frame-' + u.frame : '';
@@ -67,32 +105,40 @@
     // Своя рамка: картинка с прозрачностью (PNG, GIF, WebP) поверх аватара, чуть больше его.
     const overlay = u.frameUrl ? C.media(u.frameUrl, 'frame-img') : null;
     if (overlay) { overlay.addEventListener('error', () => overlay.remove()); el.append(overlay); }
-    if (status) el.append(h('span', { class: 'dot ' + (status === 'online' ? 'online' : '') }));
+    if (status) el.append(h('span', { class: dotClass(status) }));
     return el;
   }
 
+  const isVideoUrl = (u) => /\.(mp4|webm)(\?|$)/i.test(u || '');
   function bgStyle(url) {
     const safe = C.safeUrl(url);
-    return safe && !/\.(mp4|webm)(\?|$)/i.test(safe) ? { backgroundImage: `url("${safe}")` } : {};
+    return safe && !isVideoUrl(safe) ? { backgroundImage: `url("${safe}")` } : {};
   }
 
   function activityLine(a) {
     if (!a) return null;
     const parts = [a.details, a.state].filter(Boolean).join(' · ');
-    const since = a.startedAt ? ' — ' + C.fmtElapsed(a.startedAt) : '';
-    return h('span', null, h('b', null, a.name), parts ? ' · ' + parts : '', since);
+    const since = a.startedAt && a.kind !== 'music' ? ' — ' + C.fmtElapsed(a.startedAt) : '';
+    return h('span', null, a.kind === 'music' ? '🎵 ' : '', h('b', null, a.name), parts ? ' · ' + parts : '', since);
   }
 
-  const statusLabel = (m) => (m.status === 'online' ? 'В сети' : 'Не в сети');
+  const statusLabel = (m) => ({ online: 'В сети', idle: 'Не на месте', dnd: 'Не беспокоить' }[m.status] || 'Не в сети');
+  const isOn = (m) => ['online', 'idle', 'dnd'].includes(m.status);
+  const fmtTime = (ts) => {
+    if (S.settings.clock24) return C.fmtTime(ts);
+    const d = new Date(ts);
+    const t = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    return d.toDateString() === new Date().toDateString() ? 'сегодня в ' + t : d.toLocaleDateString('ru-RU') + ' ' + t;
+  };
 
   async function copy(text) {
     try { await navigator.clipboard.writeText(text); C.toast('Скопировано'); } catch (e) { C.toast('Не удалось скопировать'); }
   }
 
   const el = {};
-  function modal(content, { wide = false, onClose } = {}) {
+  function modal(content, { wide = false, onClose, cls = '' } = {}) {
     const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(); } });
-    const box = h('div', { class: 'modal' + (wide ? ' wide' : '') },
+    const box = h('div', { class: 'modal' + (wide ? ' wide' : '') + (cls ? ' ' + cls : '') },
       h('button', { class: 'icon-btn close', title: 'Закрыть', onclick: () => close() }, '✕'), content);
     overlay.append(box);
     const onKey = (e) => { if (e.key === 'Escape') close(); };
@@ -100,6 +146,54 @@
     function close() { document.removeEventListener('keydown', onKey); overlay.remove(); if (onClose) onClose(); }
     document.body.append(overlay);
     return { close, box, overlay };
+  }
+
+  // Контекстное меню по правому клику: [{label, onclick, danger}] (null пропускается).
+  let ctxMenu = null;
+  function contextMenu(e, items) {
+    e.preventDefault();
+    if (ctxMenu) ctxMenu.remove();
+    const menu = h('div', { class: 'ctx-menu' }, items.filter(Boolean).map((it) => h('div', { class: 'ctx-item' + (it.danger ? ' danger' : ''), onclick: () => { menu.remove(); ctxMenu = null; it.onclick(); } }, it.label)));
+    document.body.append(menu);
+    const r = menu.getBoundingClientRect();
+    menu.style.left = Math.min(e.clientX, innerWidth - r.width - 8) + 'px';
+    menu.style.top = Math.min(e.clientY, innerHeight - r.height - 8) + 'px';
+    ctxMenu = menu;
+    const off = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); ctxMenu = null; document.removeEventListener('mousedown', off); } };
+    setTimeout(() => document.addEventListener('mousedown', off), 0);
+  }
+
+  // Подсказка при наведении: первая строка жирная. Строки собираются в момент наведения.
+  function tooltip(node, getLines) {
+    let tip = null;
+    node.addEventListener('mouseenter', () => {
+      const lines = getLines().filter(Boolean);
+      if (!lines.length) return;
+      tip = h('div', { class: 'tip' }, h('b', null, lines[0]), ...lines.slice(1).map((l) => h('div', null, l)));
+      document.body.append(tip);
+      const r = node.getBoundingClientRect();
+      tip.style.left = r.right + 12 + 'px';
+      tip.style.top = Math.max(8, Math.min(r.top + r.height / 2 - tip.offsetHeight / 2, innerHeight - tip.offsetHeight - 8)) + 'px';
+    });
+    node.addEventListener('mouseleave', () => { if (tip) { tip.remove(); tip = null; } });
+    node.addEventListener('mousedown', () => { if (tip) { tip.remove(); tip = null; } });
+  }
+
+  // ---------- Активность ----------
+  // Что видят друзья: своя активность (плагин) или найденная игра, иначе музыка. Можно скрыть совсем.
+  function effectiveActivity() {
+    if (!S.shareActivity) return null;
+    const a = S.activityOverride || S.detected || S.music;
+    return C.plugins.intercept('activity', a || null);
+  }
+  function updateActivity() {
+    const a = effectiveActivity();
+    const key = JSON.stringify(a);
+    if (key === S.activityKey) { renderUserbar(); return; }
+    S.activityKey = key;
+    S.activity = a;
+    renderUserbar();
+    if (S.conn) S.conn.send({ t: 'activity', activity: a ? { name: a.name, details: a.details, state: a.state, startedAt: a.startedAt, image: a.image, kind: a.kind } : null });
   }
 
   // ---------- Подключение ----------
@@ -112,8 +206,9 @@
     return [...sig].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
   }
 
-  function helloPayload(uid) {
-    return { uid, status: S.status, activity: S.activity, ...profileFields(S.profile) };
+  const wireStatus = () => (S.idle && S.status === 'online' ? 'idle' : S.status);
+  function helloPayload(id) {
+    return { uid: id, status: wireStatus(), activity: S.activity, ...profileFields(S.profile) };
   }
 
   function roomCode(host, port) {
@@ -142,44 +237,111 @@
   }
 
   async function connectTo(addr, opts = {}, attempt = 0) {
-    if (S.conn) await disconnect();
+    // Сами пошли в другую комнату — старое переподключение больше не нужно.
+    if (!opts.reconnecting) cancelReconnect();
+    if (S.conn) await disconnect({ keepReconnect: opts.reconnecting });
     const known = S.rooms.find((r) => r.host === addr.host && r.port === addr.port);
-    const password = opts.password || (known && known.pw) || '';
+    const password = opts.password || (known && known.pw) || (S.hosting && addr.host === '127.0.0.1' ? S.hostPassword : '') || '';
     const client = new C.RoomClient({ host: addr.host, port: addr.port, hello: helloPayload(await deriveUid(addr.host, addr.port)), password });
     try { await client.connect(); } catch (e) {
-      if ((e.code === 'need-password' || e.code === 'bad-password') && attempt < 4) {
+      if ((e.code === 'need-password' || e.code === 'bad-password') && attempt < 4 && !opts.reconnecting) {
         const res = await askPassword(addr, e.code === 'bad-password');
         if (!res || !res.password) return false;
         return connectTo(addr, res, attempt + 1);
       }
-      C.toast('Не удалось подключиться: ' + e.message);
+      if (!opts.reconnecting) C.toast('Не удалось подключиться: ' + e.message);
       return false;
     }
     S.conn = client;
     S.unread = {};
+    S.typing = new Map();
+    S.replyTo = null;
     S.voice = new C.VoiceManager({ client, getSettings: () => S.settings, onChange: onVoiceChange });
     // Уведомления считаем по изменению состояния: первое состояние участников запоминаем молча.
     S.seen = new Map([...client.members.values()].map((m) => [m.sid, { status: m.status, game: m.activity ? m.activity.name : null }]));
-    client.on('member', (m) => { checkPresence(m); renderSide(); renderRight(); if (S.view.type === 'friends') renderMain(); if (S.view.type === 'voice') renderMain(); });
-    client.on('left', (who) => { if (who) S.seen.delete(who.sid); renderSide(); renderRight(); if (S.view.type === 'friends') renderMain(); });
-    client.on('voice', () => { renderSide(); renderRight(); });
-    client.on('msg', onMessage);
-    client.on('room', () => renderSide());
-    client.on('error', (t) => C.toast(t));
-    client.on('close', () => {
-      C.toast('Соединение с комнатой потеряно');
-      if (S.voice) S.voice.leave().catch(() => {});
-      S.conn = null; S.voice = null; S.view = { type: 'home' };
-      renderAll();
+    client.on('member', (m, prev) => {
+      checkPresence(m);
+      C.plugins.emit('member', m, prev);
+      renderSide(); renderRight();
+      if (['friends', 'voice'].includes(S.view.type)) renderMain();
     });
+    client.on('left', (who) => { if (who) { S.seen.delete(who.sid); C.plugins.emit('left', who); } renderSide(); renderRight(); if (S.view.type === 'friends') renderMain(); });
+    client.on('voice', () => { renderSide(); renderRight(); C.plugins.emit('voice'); });
+    client.on('msg', onMessage);
+    client.on('edit', onEdit);
+    client.on('delete', onDelete);
+    client.on('react', onReact);
+    client.on('typing', onTyping);
+    client.on('ping', () => renderPing());
+    client.on('room', () => {
+      // Канал, который сейчас открыт, могли удалить.
+      if (S.view.channel && !client.room.channels.find((c) => c.id === S.view.channel)) S.view = firstTextView();
+      renderSide(); renderMain();
+    });
+    client.on('error', (t) => C.toast(t));
+    client.on('close', () => onConnectionLost(client, addr));
     const code = roomCode(addr.host, addr.port);
     const keepPw = opts.remember || (known && known.pw && known.pw === password) ? password : '';
-    S.rooms = [{ name: client.room.name, host: addr.host, port: addr.port, code, locked: !!password, pw: keepPw }, ...S.rooms.filter((r) => r.code !== code)].slice(0, 12);
+    const rec = { ...(known || {}), name: client.room.name, host: addr.host, port: addr.port, code, locked: !!password, pw: keepPw, lastVisit: Date.now(), lastMembers: client.members.size };
+    S.rooms = [rec, ...S.rooms.filter((r) => r.code !== code)].slice(0, 16);
     store.set('rooms', S.rooms);
-    const first = client.room.channels.find((c) => c.type === 'text');
-    S.view = { type: 'text', channel: first.id };
+    const wanted = opts.view && opts.view.channel && client.room.channels.find((c) => c.id === opts.view.channel) ? opts.view : null;
+    S.view = wanted || firstTextView();
+    S.pingTimer = setInterval(() => client.send({ t: 'ping', ts: performance.now() }), 5000);
+    client.send({ t: 'ping', ts: performance.now() });
     renderAll();
+    C.plugins.emit('connect', client);
     return true;
+  }
+
+  function firstTextView() {
+    const first = S.conn ? S.conn.room.channels.find((c) => c.type === 'text') : null;
+    return first ? { type: 'text', channel: first.id } : { type: 'home' };
+  }
+
+  // Связь пропала: если это не исключение и не бан, пробуем переподключиться и вернуться в тот же канал
+  // (и в тот же голосовой канал). В локальной сети это спасает от коротких обрывов Wi-Fi.
+  function onConnectionLost(client, addr) {
+    if (S.conn !== client) return;
+    const view = S.view;
+    const voiceChannel = S.voice && S.voice.channel;
+    clearInterval(S.pingTimer);
+    if (S.voice) S.voice.leave().catch(() => {});
+    S.conn = null; S.voice = null;
+    C.plugins.emit('disconnect');
+    if (!S.settings.autoReconnect || client.noReconnect) {
+      C.toast('Соединение с комнатой потеряно');
+      S.view = { type: 'home' };
+      renderAll();
+      return;
+    }
+    const delays = [1000, 2000, 3000, 5000, 8000, 12000, 20000, 30000];
+    const state = { addr, view, voiceChannel, attempt: 0, timer: null };
+    S.reconnect = state;
+    const tryNow = async () => {
+      if (S.reconnect !== state) return;
+      state.attempt++;
+      renderMain();
+      const ok = await connectTo(addr, { reconnecting: true, view });
+      if (S.reconnect !== state) return;
+      if (ok) {
+        S.reconnect = null;
+        C.toast('Соединение восстановлено');
+        if (voiceChannel && S.conn.room.channels.find((c) => c.id === voiceChannel)) S.voice.join(voiceChannel).catch(() => {});
+        renderAll();
+        return;
+      }
+      if (state.attempt >= delays.length) { S.reconnect = null; C.toast('Не удалось переподключиться'); S.view = { type: 'home' }; renderAll(); return; }
+      state.timer = setTimeout(tryNow, delays[state.attempt]);
+    };
+    state.timer = setTimeout(tryNow, delays[0]);
+    renderAll();
+  }
+
+  function cancelReconnect() {
+    if (!S.reconnect) return;
+    clearTimeout(S.reconnect.timer);
+    S.reconnect = null;
   }
 
   // ---------- Уведомления как в Steam ----------
@@ -201,15 +363,19 @@
     } catch (e) { /* звук недоступен */ }
   }
 
-  function showPresenceNote(user, kind) {
+  // kind: playing, online, listening или свой текст (line) от плагина.
+  function showPresenceNote(user, kind, line, sub) {
+    if (S.status === 'dnd') return;
     let box = document.getElementById('steam-toasts');
     if (!box) { box = h('div', { id: 'steam-toasts' }); document.body.append(box); }
     while (box.children.length >= 4) box.firstChild.remove();
+    const text = line || (kind === 'playing' ? 'играет в' : kind === 'listening' ? 'слушает' : 'в сети');
+    const game = sub != null ? sub : kind === 'playing' || kind === 'listening' ? (user.activity ? [user.activity.name, user.activity.details].filter(Boolean).join(' · ') : '') : '';
     const note = h('div', { class: 'snote', onclick: () => { note.remove(); openProfileCard(user); } },
       avatarEl(user), h('div', { class: 'stext' },
         h('div', { class: 'sname' }, nameEl(user, { tag: false })),
-        h('div', { class: 'sline' }, kind === 'playing' ? 'играет в' : 'в сети'),
-        kind === 'playing' ? h('div', { class: 'sgame' }, user.activity ? user.activity.name : '') : null));
+        h('div', { class: 'sline' }, text),
+        game ? h('div', { class: 'sgame' }, game) : null));
     box.append(note);
     if (S.settings.notifySound) chime();
     setTimeout(() => { note.classList.add('out'); setTimeout(() => note.remove(), 260); }, 6000);
@@ -220,16 +386,18 @@
     const prev = S.seen.get(m.sid);
     const game = m.activity ? m.activity.name : null;
     S.seen.set(m.sid, { status: m.status, game });
-    if (m.status !== 'online') return;
-    const startedGame = game && (!prev || prev.game !== game);
-    const becameOnline = !prev || prev.status !== 'online';
+    if (!isOn(m)) return;
+    const startedGame = game && m.activity.kind !== 'music' && (!prev || prev.game !== game);
+    const becameOnline = !prev || !['online', 'idle', 'dnd'].includes(prev.status);
     if (startedGame && S.settings.notifyPlaying) showPresenceNote(m, 'playing');
     else if (becameOnline && S.settings.notifyOnline) showPresenceNote(m, 'online');
   }
 
-  async function disconnect() {
+  async function disconnect({ keepReconnect } = {}) {
+    if (!keepReconnect) cancelReconnect();
+    clearInterval(S.pingTimer);
     if (S.voice) { try { await S.voice.leave(); } catch (e) { /* ignore */ } }
-    if (S.conn) { const c = S.conn; S.conn = null; c.handlers = {}; c.close(); }
+    if (S.conn) { const c = S.conn; S.conn = null; c.handlers = {}; c.close(); C.plugins.emit('disconnect'); }
     S.voice = null;
     S.view = { type: 'home' };
     renderAll();
@@ -237,12 +405,70 @@
 
   function onMessage(channel, msg) {
     const viewing = S.view.type === 'text' && S.view.channel === channel;
-    if (viewing) appendMessage(msg, true);
+    const typers = S.typing.get(channel);
+    if (typers) typers.delete(msg.sid);
+    if (viewing) { appendMessage(msg, true); renderTyping(); }
     else if (msg.sid !== S.conn.sid) { S.unread[channel] = (S.unread[channel] || 0) + 1; renderSide(); }
+    C.plugins.emit('message', channel, msg);
+  }
+
+  function msgNode(id) { return document.querySelector(`#messages .msg[data-id="${CSS.escape(id)}"]`); }
+
+  function onEdit(channel, msg, before) {
+    C.plugins.emit('edit', channel, msg, before);
+    const node = msgNode(msg.id);
+    if (node) node.replaceWith(messageNode(msg, channel, node.classList.contains('cont')));
+  }
+
+  function onDelete(channel, id, gone, by) {
+    // Плагин (например, журнал сообщений) может оставить удалённое сообщение на экране.
+    const keep = C.plugins.intercept('delete', false, { channel, id, msg: gone, by });
+    C.plugins.emit('delete', channel, id, gone);
+    const node = msgNode(id);
+    if (!node) return;
+    if (keep) { node.classList.add('deleted'); const head = node.querySelector('.head'); if (head && !head.querySelector('.del-mark')) head.append(h('span', { class: 'del-mark' }, 'удалено')); }
+    else node.remove();
+  }
+
+  function onReact(channel, id) {
+    const node = msgNode(id);
+    const msg = (S.conn.history.get(channel) || []).find((x) => x.id === id);
+    if (!node || !msg) return;
+    const old = node.querySelector('.reactions');
+    const next = reactionsRow(msg, channel);
+    if (old) old.replaceWith(next); else node.querySelector('.body').append(next);
+  }
+
+  // «Печатает…»: запись живёт 6 секунд, если не продлили.
+  function onTyping(channel, sid) {
+    if (!S.typing.has(channel)) S.typing.set(channel, new Map());
+    S.typing.get(channel).set(sid, Date.now());
+    C.plugins.emit('typing', channel, sid);
+    renderTyping();
+    renderSide();
+    setTimeout(() => { renderTyping(); renderSide(); }, 6200);
+  }
+
+  function typersIn(channel) {
+    const map = S.typing.get(channel);
+    if (!map || !S.conn) return [];
+    const now = Date.now();
+    for (const [sid, ts] of map) if (now - ts > 6000 || !S.conn.members.has(sid)) map.delete(sid);
+    return [...map.keys()].map((sid) => S.conn.members.get(sid)).filter(Boolean);
+  }
+
+  function renderTyping() {
+    const bar = document.getElementById('typing');
+    if (!bar || S.view.type !== 'text') return;
+    const who = typersIn(S.view.channel);
+    if (!who.length) { bar.replaceChildren(); bar.classList.remove('on'); return; }
+    const names = who.slice(0, 3).map((m) => m.name).join(', ') + (who.length > 3 ? ` и ещё ${who.length - 3}` : '');
+    bar.classList.add('on');
+    bar.replaceChildren(h('span', { class: 'dots' }, h('i'), h('i'), h('i')), h('b', null, names), who.length > 1 ? ' печатают…' : ' печатает…');
   }
 
   function onVoiceChange(light) {
-    if (light) { updateSpeaking(); return; }
+    if (light) { updateSpeaking(); updateNetStats(); return; }
     renderSide(); renderRight();
     if (S.view.type === 'voice') renderMain();
     renderUserbar();
@@ -253,6 +479,18 @@
     document.querySelectorAll('[data-sid]').forEach((n) => {
       if (n.dataset.sid) n.classList.toggle('speaking', sp.has(n.dataset.sid));
     });
+  }
+
+  // Качество связи в плитках голосового канала: задержка и признак прямого соединения по локальной сети.
+  function updateNetStats() {
+    if (!S.voice || S.view.type !== 'voice') return;
+    for (const [sid, peer] of S.voice.peers) {
+      const tag = document.querySelector(`.tile[data-sid="${CSS.escape(sid)}"] .net`);
+      if (!tag || !peer.stats) continue;
+      const st = peer.stats;
+      tag.textContent = (st.lan ? 'LAN · ' : '') + (st.rtt != null ? st.rtt + ' мс' : '');
+      tag.className = 'net' + (st.lan ? ' lan' : '') + (st.rtt > 150 ? ' bad' : '');
+    }
   }
 
   // ---------- Отправка ----------
@@ -274,63 +512,147 @@
         return;
       }
     }
-    S.conn.send({ t: 'msg', channel, text: t, emojis: C.stickerLib.usedEmojis(t) });
+    const out = { t: 'msg', channel, text: t, emojis: C.stickerLib.usedEmojis(t) };
+    if (S.replyTo) out.reply = S.replyTo.id;
+    S.conn.send(out);
+    setReply(null);
   }
 
-  // Текст сообщения: :имя: заменяется на кастомный эмодзи, если ссылка пришла вместе с сообщением.
-  function richText(text, emojis) {
-    const box = h('div', { class: 'text' });
-    const re = /:([A-Za-z0-9_]{2,32}):/g;
+  let lastTypingSent = 0;
+  function sendTyping(channel) {
+    const now = Date.now();
+    if (now - lastTypingSent < 2500 || !S.conn) return;
+    // Плагин «Невидимый набор» запрещает отправку.
+    if (C.plugins.intercept('typing', true, channel) === false) return;
+    lastTypingSent = now;
+    S.conn.send({ t: 'typing', channel });
+  }
+
+  // Форматирование текста: **жирный**, *курсив*, ~~зачёркнутый~~, `код`, ||спойлер||, :эмодзи:, ссылки.
+  // Всё собирается из текстовых узлов, HTML из сообщения на страницу не попадает.
+  const TOKEN = /(\|\|[\s\S]+?\|\|)|(\*\*[^*]+?\*\*)|(~~[^~]+?~~)|(`[^`\n]+?`)|(\*[^*\s][^*\n]*?\*)|(:[A-Za-z0-9_]{2,32}:)|(https?:\/\/[^\s<>"']+)/g;
+  function inline(text, emojis, stats) {
+    const out = [];
     let last = 0;
-    let count = 0;
     let m;
+    TOKEN.lastIndex = 0;
+    const re = new RegExp(TOKEN.source, 'g');
     while ((m = re.exec(text))) {
-      const url = emojis && emojis[m[1]] ? C.safeUrl(emojis[m[1]]) : null;
-      if (!url) continue;
-      if (m.index > last) box.append(text.slice(last, m.index));
-      const img = C.media(url, 'emoji');
-      img.title = `:${m[1]}:`;
-      box.append(img);
+      if (m.index > last) out.push(text.slice(last, m.index));
+      const s = m[0];
+      if (m[1]) {
+        const sp = h('span', { class: 'spoiler', title: 'Спойлер: нажмите, чтобы показать', onclick: (e) => { e.currentTarget.classList.add('open'); } }, inline(s.slice(2, -2), emojis, stats));
+        out.push(sp); stats.other = true;
+      } else if (m[2]) { out.push(h('b', null, inline(s.slice(2, -2), emojis, stats))); stats.other = true; }
+      else if (m[3]) { out.push(h('s', null, inline(s.slice(2, -2), emojis, stats))); stats.other = true; }
+      else if (m[4]) { out.push(h('code', null, s.slice(1, -1))); stats.other = true; }
+      else if (m[5]) { out.push(h('i', null, inline(s.slice(1, -1), emojis, stats))); stats.other = true; }
+      else if (m[6]) {
+        const url = emojis && emojis[s.slice(1, -1)] ? C.safeUrl(emojis[s.slice(1, -1)]) : null;
+        const img = url ? C.media(url, 'emoji') : null;
+        if (img) { img.title = s; img.dataset.emoji = s.slice(1, -1); img.dataset.url = url; out.push(img); stats.emoji++; } else { out.push(s); stats.other = true; }
+      } else if (m[7]) {
+        // Ссылки не открываются, а копируются: так никто не узнает ваш IP через подставную ссылку.
+        out.push(h('span', { class: 'link', title: 'Нажмите, чтобы скопировать ссылку', onclick: () => copy(s) }, s)); stats.other = true;
+      }
       last = re.lastIndex;
-      count++;
     }
-    if (last < text.length) box.append(text.slice(last));
-    if (count && count <= 8 && !text.replace(re, '').trim()) box.classList.add('jumbo');
+    if (last < text.length) out.push(text.slice(last));
+    if (out.some((x) => typeof x === 'string' && x.trim())) stats.other = true;
+    return out;
+  }
+
+  // Текст без разметки: для цитат и подсказок. Спойлер остаётся скрытым.
+  const plainText = (t) => String(t || '').replace(/\|\|[\s\S]+?\|\|/g, '▒▒▒').replace(/(\*\*|~~|`|\*)/g, '');
+
+  function richText(text, emojis) {
+    const stats = { emoji: 0, other: false };
+    const box = h('div', { class: 'text' }, inline(text, emojis, stats));
+    if (stats.emoji && stats.emoji <= 8 && !stats.other) box.classList.add('jumbo');
     return box;
   }
 
+  // ---------- API для плагинов ----------
+  const memberByPub = (pub) => (S.conn ? [...S.conn.members.values()].find((x) => x.uid === pub) : null);
   C.plugins.appApi = {
-    getState: () => ({ user: { ...S.profile }, room: S.conn ? S.conn.room : null, channel: S.view.channel || null }),
+    getState: () => ({ user: { ...S.profile }, room: S.conn ? S.conn.room : null, channel: S.view.channel || null, view: { ...S.view }, status: S.status }),
     sendMessage: (channel, text) => { if (S.conn) S.conn.send({ t: 'msg', channel, text: String(text) }); },
+    rerender: () => { if (!el.rail) return; renderRail(); renderSide(); renderRight(); refreshMessages(); },
+    rerenderUserbar: () => renderUserbar(),
+    members: () => (S.conn ? [...S.conn.members.values()] : []),
+    member: (sid) => (S.conn ? S.conn.members.get(sid) : null),
+    memberByPub,
+    me: () => (S.conn ? S.conn.me() : null),
+    myPub: () => (S.conn ? S.conn.meId : null),
+    connection: () => S.conn,
+    voice: () => S.voice,
+    history: (channel) => (S.conn ? S.conn.history.get(channel) || [] : []),
+    channels: () => (S.conn ? S.conn.room.channels : []),
+    channel: (id) => (S.conn ? S.conn.room.channels.find((c) => c.id === id) : null),
+    rooms: () => S.rooms,
+    hosting: () => S.hosting,
+    settings: () => ({ ...S.settings }),
+    openProfile: (u) => openProfileCard(u),
+    openChannel: (id) => { S.view = { type: S.conn.room.channels.find((c) => c.id === id).type, channel: id }; renderAll(); },
+    joinVoice: (id) => S.voice && S.voice.join(id).then(() => { S.view = { type: 'voice', channel: id }; renderAll(); }),
+    connectRoom: (r) => connectTo({ host: r.host, port: r.port }),
+    modal, avatarEl, nameEl, copy, contextMenu, fmtTime, activityLine,
+    media: C.media,
+    notify: (user, line, sub) => showPresenceNote(user, 'custom', line, sub),
+    setAccentOverride: (hex) => { S.accentOverride = HEX.test(hex || '') ? hex : null; C.applyAccent(S.accentOverride || S.settings.accent); },
+    setActivityOverride: (a) => { S.activityOverride = a || null; updateActivity(); },
+    setMusic: (a) => { S.music = a || null; updateActivity(); },
+    getActivity: () => S.activity,
+    detectedActivity: () => S.detected,
+    get shareActivity() { return S.shareActivity; },
+    setShareActivity: (v) => { S.shareActivity = !!v; store.set('shareActivity', S.shareActivity); updateActivity(); },
+    stickerLib: () => C.stickerLib,
+    particles: C.particles,
+    native: { mediaWatch: native.mediaWatch, mediaCommand: native.mediaCommand, onMedia: native.onMedia },
   };
 
   // ---------- Рендер: рельса ----------
   function renderRail() {
     const r = el.rail;
-    r.replaceChildren(
-      h('button', { class: 'rail-btn logo' + (S.view.type === 'home' ? ' on' : ''), title: 'Главная', onclick: () => { S.view = { type: 'home' }; renderAll(); } },
-        h('img', { src: 'logo.png', alt: '' })),
-      h('div', { class: 'rail-sep' }),
-      ...S.rooms.map((room) => {
-        const active = S.conn && S.conn.host === room.host && S.conn.port === room.port;
-        return h('button', {
-          class: 'rail-btn' + (active ? ' on' : ''), title: `${room.name} (${room.code})`,
-          onclick: () => { if (!active) connectTo({ host: room.host, port: room.port }); },
-        }, (room.name || '?').charAt(0).toUpperCase());
-      }),
-      h('button', { class: 'rail-btn', title: 'Подключиться или создать', onclick: () => { S.view = { type: 'home' }; renderAll(); } }, '+'),
-    );
+    const button = (room) => {
+      const active = S.conn && S.conn.host === room.host && S.conn.port === room.port;
+      const b = h('button', {
+        class: 'rail-btn' + (active ? ' on' : '') + (room.pinned ? ' pinned' : ''),
+        onclick: () => { if (!active) connectTo({ host: room.host, port: room.port }); },
+        oncontextmenu: (e) => contextMenu(e, [
+          { label: room.pinned ? '📌 Открепить' : '📌 Закрепить сверху', onclick: () => { room.pinned = !room.pinned; store.set('rooms', S.rooms); renderRail(); } },
+          { label: '📋 Скопировать код', onclick: () => copy(room.code) },
+          active ? { label: '⏏ Отключиться', onclick: () => disconnect() } : null,
+          { label: '✕ Убрать из списка', danger: true, onclick: () => { S.rooms = S.rooms.filter((x) => x !== room); store.set('rooms', S.rooms); renderAll(); } },
+        ]),
+      }, (room.name || '?').charAt(0).toUpperCase());
+      tooltip(b, () => [room.name, ...C.plugins.collect('roomTooltip', room)]);
+      return b;
+    };
+    const pinned = S.rooms.filter((x) => x.pinned);
+    const rest = S.rooms.filter((x) => !x.pinned);
+    const home = h('button', { class: 'rail-btn logo' + (S.view.type === 'home' ? ' on' : ''), onclick: () => { S.view = { type: 'home' }; renderAll(); } }, h('img', { src: 'logo.png', alt: '' }));
+    tooltip(home, () => ['Главная']);
+    const plus = h('button', { class: 'rail-btn add', onclick: () => { S.view = { type: 'home' }; renderAll(); } }, '+');
+    tooltip(plus, () => ['Подключиться или создать']);
+    r.replaceChildren(...[home, h('div', { class: 'rail-sep' }), ...pinned.map(button), pinned.length && rest.length ? h('div', { class: 'rail-sep' }) : null,
+      ...rest.map(button), plus, ...C.plugins.collect('railBottom', { rooms: S.rooms })].filter(Boolean));
   }
 
   // ---------- Рендер: боковая панель ----------
   function renderSide() {
     const s = el.side;
     const scroll = h('div', { class: 'side-scroll' });
-    const nav = (icon, label, view, extra) => h('div', {
-      class: 'nav' + (S.view.type === view.type && S.view.channel === view.channel ? ' on' : ''),
-      onclick: () => { S.view = view; if (view.channel) S.unread[view.channel] = 0; renderAll(); },
-    }, h('span', null, icon), h('span', null, label), extra);
+    const nav = (icon, label, view, extra, ch) => {
+      const node = h('div', {
+        class: 'nav' + (S.view.type === view.type && S.view.channel === view.channel ? ' on' : ''),
+        onclick: () => { S.view = view; if (view.channel) S.unread[view.channel] = 0; renderAll(); },
+      }, h('span', { class: 'nav-ic' }, icon), h('span', { class: 'nav-label' }, label), ...(ch ? C.plugins.collect('channel', { channel: ch, typing: typersIn(ch.id) }) : []), extra);
+      if (ch && ch.topic) node.title = ch.topic;
+      return node;
+    };
 
+    scroll.append(...C.plugins.collect('sideTop', {}));
     scroll.append(nav('🏠', 'Главная', { type: 'home' }));
     if (S.conn) {
       scroll.append(nav('👥', 'Друзья', { type: 'friends' }));
@@ -354,13 +676,14 @@
         for (const ch of list) {
           if (ch.type === 'text') {
             const n = S.unread[ch.id];
-            scroll.append(nav('#', ch.name, { type: 'text', channel: ch.id }, n ? h('span', { class: 'badge' }, n) : null));
+            scroll.append(nav('#', ch.name, { type: 'text', channel: ch.id }, n ? h('span', { class: 'badge' }, n) : null, ch));
           } else {
-            scroll.append(nav('🔊', ch.name, { type: 'voice', channel: ch.id }));
+            scroll.append(nav('🔊', ch.name, { type: 'voice', channel: ch.id }, null, ch));
             const inside = (S.conn.voice[ch.id] || []).map((sid) => S.conn.members.get(sid)).filter(Boolean);
             if (inside.length) {
               scroll.append(h('div', { class: 'voice-members' }, inside.map((m) =>
-                h('div', { class: 'voice-member', dataset: { sid: m.sid } }, avatarEl(m), nameEl(m, { tag: false })))));
+                h('div', { class: 'voice-member', dataset: { sid: m.sid }, onclick: () => openProfileCard(m) }, avatarEl(m), nameEl(m, { tag: false }),
+                  h('span', { class: 'vflags' }, m.screen ? h('span', { class: 'live' }, 'LIVE') : null, m.muted ? '🔇' : null, m.deaf ? '🙉' : null)))));
             }
           }
         }
@@ -371,24 +694,37 @@
     const banner = room && C.safeUrl(room.banner);
     const header = h('div', {
       class: 'side-title room-header' + (banner ? ' has-banner' : '') + (S.conn && S.conn.owner ? ' owner' : ''),
-      style: banner && !/\.(mp4|webm)(\?|$)/i.test(banner) ? { backgroundImage: `url("${banner}")` } : {},
+      style: banner && !isVideoUrl(banner) ? { backgroundImage: `url("${banner}")` } : {},
       title: S.conn && S.conn.owner ? 'Настройки комнаты' : '',
       onclick: () => { if (S.conn && S.conn.owner) openSettings('room'); },
-    }, h('span', { class: 'room-name' }, room ? room.name : 'corsa-mess'));
-    s.replaceChildren(header, scroll, h('div', { class: 'userbar', id: 'userbar' }));
+    }, h('span', { class: 'room-name' }, room ? room.name : 'corsa-mess'), S.conn ? h('span', { class: 'ping', id: 'ping' }) : null);
+    s.replaceChildren(header, scroll, ...C.plugins.collect('sideBottom', {}), h('div', { class: 'userbar', id: 'userbar' }));
     renderUserbar();
+    renderPing();
     updateSpeaking();
+  }
+
+  function renderPing() {
+    const p = document.getElementById('ping');
+    if (!p || !S.conn) return;
+    const ms = S.conn.ping;
+    p.textContent = ms == null ? '' : `● ${ms} мс`;
+    p.className = 'ping' + (ms == null ? '' : ms < 40 ? ' good' : ms < 150 ? ' ok' : ' bad');
+    p.title = 'Задержка до сервера комнаты';
   }
 
   function renderUserbar() {
     const bar = document.getElementById('userbar');
     if (!bar) return;
     const v = S.voice;
-    const sub = S.status === 'invisible' ? 'Невидимка' : S.activity ? S.activity.name : 'В сети';
+    const st = STATUSES.find((x) => x[0] === wireStatus());
+    let sub = S.status === 'invisible' ? 'Невидимка' : S.activity ? (S.activity.kind === 'music' ? '🎵 ' : '') + S.activity.name : st ? st[2] : 'В сети';
+    sub = C.plugins.intercept('userbarSub', sub);
     bar.replaceChildren(...[
       h('div', { class: 'who', onclick: (e) => openSelfMenu(e.currentTarget), title: 'Профиль' },
-        avatarEl({ ...S.profile }, { status: S.status === 'invisible' ? 'offline' : 'online' }),
+        avatarEl({ ...S.profile }, { status: S.status === 'invisible' ? 'offline' : wireStatus() }),
         h('div', { style: { minWidth: 0 } }, h('div', { class: 'name' }, nameEl(S.profile, { tag: false })), h('div', { class: 'sub' }, sub))),
+      ...C.plugins.collect('userbar', {}),
       v && v.inChannel ? h('button', { class: 'icon-btn' + (v.muted ? ' off' : ''), title: 'Микрофон', onclick: () => v.setMuted(!v.muted) }, v.muted ? '🔇' : '🎙') : null,
       v && v.inChannel ? h('button', { class: 'icon-btn' + (v.deafened ? ' off' : ''), title: 'Звук', onclick: () => v.setDeafened(!v.deafened) }, v.deafened ? '🙉' : '🎧') : null,
       h('button', { class: 'icon-btn', title: 'Настройки', onclick: () => openSettings() }, '⚙'),
@@ -396,9 +732,31 @@
   }
 
   // ---------- Рендер: правая панель ----------
+  function plateStyle(u) {
+    const url = C.safeUrl(u.plateUrl);
+    return url && !isVideoUrl(url) ? { backgroundImage: `linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,.15)), url("${url}")` } : {};
+  }
+
+  function memberRow(m) {
+    const plate = m.plateUrl ? ' plate-img' : m.plate && m.plate !== 'none' ? ' plate-' + m.plate : '';
+    return h('div', { class: 'member' + (isOn(m) ? '' : ' offline') + plate, style: plateStyle(m), onclick: () => openProfileCard(m),
+      oncontextmenu: (e) => contextMenu(e, memberMenu(m)) },
+      avatarEl(m, { status: m.status }),
+      h('div', { class: 'meta' }, h('div', { class: 'nm' }, nameEl(m), ...C.plugins.collect('member', { member: m })),
+        m.activity ? h('div', { class: 'act' }, activityLine(m.activity)) : m.custom ? h('div', { class: 'act' }, m.custom) : null));
+  }
+
+  function memberMenu(m) {
+    return [
+      { label: '👤 Профиль', onclick: () => openProfileCard(m) },
+      { label: '@ Упомянуть', onclick: () => { const f = document.querySelector('.composer .field'); if (f) { f.value += `@${m.name} `; f.focus(); } } },
+      S.conn && S.conn.owner && m.sid !== S.conn.sid ? { label: '🚪 Выгнать', danger: true, onclick: () => S.conn.send({ t: 'kick', sid: m.sid }) } : null,
+    ];
+  }
+
   function renderRight() {
     const r = el.right;
-    const show = S.conn && ['text', 'voice', 'friends'].includes(S.view.type);
+    const show = S.conn && ['text', 'voice', 'friends'].includes(S.view.type) && S.settings.showMembers;
     r.style.display = show ? '' : 'none';
     if (!show) return;
     const members = [...S.conn.members.values()];
@@ -410,18 +768,15 @@
         [h('div', { class: 'hint', style: { padding: '0 6px' } }, 'Сейчас никто ничего не играет.')]));
       return;
     }
-    const on = members.filter((m) => m.status === 'online');
-    const off = members.filter((m) => m.status !== 'online');
-    const row = (m) => h('div', { class: 'member' + (m.status === 'online' ? '' : ' offline'), onclick: () => openProfileCard(m) },
-      avatarEl(m, { status: m.status }),
-      h('div', { class: 'meta' }, h('div', { class: 'nm' }, nameEl(m)),
-        m.activity ? h('div', { class: 'act' }, activityLine(m.activity)) : m.custom ? h('div', { class: 'act' }, m.custom) : null));
+    const on = members.filter(isOn);
+    const off = members.filter((m) => !isOn(m));
     const playing = members.filter((m) => m.activity);
     const card = (m) => h('div', { class: 'contact-card', onclick: () => openProfileCard(m) },
       h('div', { class: 'row' }, avatarEl(m, { status: m.status }), h('div', { class: 'meta' }, h('b', null, nameEl(m)), h('div', { class: 'game' }, activityLine(m.activity)))));
     r.replaceChildren(...[
+      ...C.plugins.collect('memberHeader', { members }),
       playing.length ? h('h4', null, `Активность — ${playing.length}`) : null, ...playing.map(card),
-      h('h4', null, `В сети — ${on.length}`), ...on.map(row), off.length ? h('h4', null, `Не в сети — ${off.length}`) : null, ...off.map(row),
+      h('h4', null, `В сети — ${on.length}`), ...on.map(memberRow), off.length ? h('h4', null, `Не в сети — ${off.length}`) : null, ...off.map(memberRow),
     ].filter(Boolean));
     updateSpeaking();
   }
@@ -430,10 +785,21 @@
   function renderMain() {
     const m = el.main;
     const t = S.view.type;
+    if (S.reconnect && !S.conn) { renderReconnect(m); return; }
+    if (t !== 'voice') setWatching(null);
     if (t === 'home' || !S.conn) { renderHome(m); return; }
     if (t === 'friends') renderFriends(m);
     else if (t === 'text') renderText(m);
     else if (t === 'voice') renderVoice(m);
+  }
+
+  function renderReconnect(m) {
+    const st = S.reconnect;
+    m.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'empty reconnect' },
+      h('div', { class: 'spinner' }), h('h3', null, 'Переподключаюсь…'),
+      h('div', null, `Связь с ${st.addr.host}:${st.addr.port} пропала. Попытка ${Math.max(1, st.attempt)}.`),
+      h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '14px' } },
+        h('button', { class: 'btn', onclick: () => { cancelReconnect(); S.view = { type: 'home' }; renderAll(); } }, 'Отмена')))));
   }
 
   // Переходы между экранами идут через renderAll: именно здесь запускается анимация появления.
@@ -443,6 +809,23 @@
   }
 
   // Главная
+  let lanTimer = null;
+  async function scanLan() {
+    if (!S.settings.lanScan || S.view.type !== 'home') return;
+    try { S.lan = await native.lanScan(); } catch (e) { S.lan = []; }
+    const box = document.getElementById('lan-list');
+    if (box) box.replaceChildren(...lanItems());
+  }
+
+  function lanItems() {
+    if (!S.settings.lanScan) return [h('div', { class: 'hint' }, 'Поиск выключен в Настройки → Сеть.')];
+    if (!S.lan.length) return [h('div', { class: 'hint' }, 'Пока никого. Комнаты друзей из той же сети (или из общей сети Radmin, ZeroTier, Hamachi) появятся здесь сами.')];
+    return S.lan.map((r) => h('div', { class: 'saved lan-room' }, h('div', { class: 'lan-ic' }, '📡'),
+      h('div', { class: 'grow' }, h('b', null, (r.locked ? '🔒 ' : '') + r.name + (r.mine ? ' (ваша)' : '')),
+        h('div', { class: 'hint' }, `${r.host}:${r.port} · ${r.members}${r.max ? '/' + r.max : ''} в комнате`)),
+      h('button', { class: 'btn primary', onclick: () => connectTo({ host: r.mine ? '127.0.0.1' : r.host, port: r.port }) }, 'Войти')));
+  }
+
   function renderHome(m) {
     const addr = h('input', { class: 'input', placeholder: 'Код (abcdef-ghijk) или адрес:порт' });
     const join = async () => {
@@ -464,7 +847,7 @@
         h('div', { class: 'row', style: { marginTop: '16px' } }, h('button', { class: 'btn primary', onclick: async () => {
           try {
             // Владелец узнаётся по идентификатору для адреса 127.0.0.1: его знает только этот компьютер.
-            S.hosting = await native.hostStart({ name: roomName.value, port: Number(port.value), ownerUid: await deriveUid('127.0.0.1', Number(port.value)), password: netPass.value });
+            S.hosting = await native.hostStart({ name: roomName.value, port: Number(port.value), ownerUid: await deriveUid('127.0.0.1', Number(port.value)), password: netPass.value, lanVisible: S.settings.lanVisible });
             S.hostPassword = netPass.value;
             await connectTo({ host: '127.0.0.1', port: S.hosting.port }, { password: S.hostPassword });
             renderMain();
@@ -486,11 +869,16 @@
         } catch (e) { netOut.className = 'hint bad'; netOut.textContent = (e.message || String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); openNet.disabled = false; }
       } }, 'Открыть доступ из интернета');
       const net = S.hosting.internet;
+      const kindLabel = { lan: 'Локальная сеть', vpn: 'VPN-сеть', other: 'Сеть' };
+      const codes = (hs.codes || []).filter((c) => c.code !== hs.code);
       hostCard.append(
-        h('div', { class: 'hint' }, `Сервер работает. ${hs.protected ? '🔒 Закрыт паролем.' : '⚠ Пароля нет: войти может любой, кто знает адрес.'} Код для друзей в той же сети:`),
+        h('div', { class: 'hint' }, `Сервер работает. ${hs.protected ? '🔒 Закрыт паролем.' : '⚠ Пароля нет: войти может любой, кто знает адрес.'} ${hs.lanVisible ? 'Комната видна друзьям в вашей сети на главной странице.' : ''} Код для друзей в той же сети:`),
         h('div', { class: 'code-box' }, hs.code || 'нет сети'),
         h('div', { class: 'row' }, hs.code ? h('button', { class: 'btn', onclick: () => copy(hs.code) }, 'Скопировать код') : null,
           h('button', { class: 'btn danger', onclick: async () => { await disconnect(); await native.hostStop(); S.hosting = null; renderMain(); } }, 'Остановить')),
+        codes.length ? h('div', null, h('label', { class: 'lbl' }, 'Другие сети этого компьютера'),
+          ...codes.map((c) => h('div', { class: 'saved' }, h('div', { class: 'grow' }, h('b', null, c.name), h('div', { class: 'hint' }, `${kindLabel[c.kind] || 'Сеть'} · ${c.address} · ${c.code}`)),
+            h('button', { class: 'btn', onclick: () => copy(c.code) }, 'Скопировать')))) : null,
         h('label', { class: 'lbl' }, 'Отпечаток сервера'),
         h('div', { class: 'hint', style: { wordBreak: 'break-all', userSelect: 'all' } }, hs.fingerprint),
         h('div', { class: 'hint' }, 'Друзья запоминают его при первом входе. Если потом он изменится, приложение предупредит о возможной подмене.'),
@@ -510,9 +898,13 @@
     }
 
     const saved = S.rooms.length ? h('div', { style: { marginTop: '14px' } }, h('label', { class: 'lbl' }, 'Недавние комнаты'),
-      ...S.rooms.map((r) => h('div', { class: 'saved' }, h('div', { class: 'grow' }, h('b', null, (r.locked ? '🔒 ' : '') + r.name), h('div', { class: 'hint' }, r.code)),
+      ...S.rooms.map((r) => h('div', { class: 'saved' }, h('div', { class: 'grow' }, h('b', null, (r.pinned ? '📌 ' : '') + (r.locked ? '🔒 ' : '') + r.name), h('div', { class: 'hint' }, r.code)),
         h('button', { class: 'btn', onclick: () => connectTo({ host: r.host, port: r.port }) }, 'Войти'),
         h('button', { class: 'icon-btn', title: 'Убрать', onclick: () => { S.rooms = S.rooms.filter((x) => x !== r); store.set('rooms', S.rooms); renderAll(); } }, '✕')))) : null;
+
+    const lanCard = h('div', { class: 'card lan-card' }, h('div', { class: 'row' }, h('h3', { class: 'grow' }, 'В вашей сети'),
+      h('button', { class: 'icon-btn', title: 'Обновить', onclick: () => scanLan() }, '⟳')),
+    h('div', { class: 'hint' }, 'Комнаты, запущенные в вашей локальной сети. Код вводить не нужно.'), h('div', { id: 'lan-list' }, ...lanItems()));
 
     m.replaceChildren(h('div', { class: 'page' },
       h('h2', { style: { marginTop: 0 } }, S.conn ? 'Главная' : 'Добро пожаловать в corsa-mess'),
@@ -520,13 +912,15 @@
         h('div', { class: 'card' }, h('h3', null, 'Подключиться к комнате'),
           h('div', { class: 'hint' }, 'Введите код от друга или IP-адрес и порт.'), h('label', { class: 'lbl' }, 'Код или адрес'), addr,
           h('div', { class: 'row', style: { marginTop: '16px' } }, h('button', { class: 'btn primary', onclick: join }, 'Подключиться')), saved),
-        hostCard)));
+        hostCard, lanCard)));
+    clearInterval(lanTimer);
+    if (S.settings.lanScan) { scanLan(); lanTimer = setInterval(() => { if (S.view.type === 'home' && document.getElementById('lan-list')) scanLan(); else clearInterval(lanTimer); }, 4000); }
   }
 
   // Друзья
   function renderFriends(m) {
     const members = [...S.conn.members.values()];
-    const list = S.friendsTab === 'online' ? members.filter((x) => x.status === 'online') : members;
+    const list = S.friendsTab === 'online' ? members.filter(isOn) : members;
     const tab = (id, label) => h('div', { class: 'tab' + (S.friendsTab === id ? ' on' : ''), onclick: () => { S.friendsTab = id; renderMain(); } }, label);
     m.replaceChildren(
       h('div', { class: 'main-head' }, h('span', { class: 'title' }, '👥 Друзья'), h('div', { class: 'tabs' }, tab('online', 'В сети'), tab('all', 'Все'))),
@@ -535,50 +929,189 @@
           h('div', { class: 'meta' }, h('div', { class: 'nm' }, nameEl(u)), h('div', { class: 'act' }, u.activity ? activityLine(u.activity) : u.custom || statusLabel(u)))))));
   }
 
-  // Чат
+  // ---------- Чат ----------
+  function reactionsRow(msg, channel) {
+    const row = h('div', { class: 'reactions' });
+    const me = S.conn.meId;
+    for (const [key, list] of Object.entries(msg.reactions || {})) {
+      if (!list || !list.length) continue;
+      const url = key.startsWith(':') && msg.remoji ? C.safeUrl(msg.remoji[key]) : null;
+      const icon = url ? C.media(url, 'emoji') : h('span', { class: 'rx-e' }, key);
+      const names = list.map((p) => { const mm = memberByPub(p); return mm ? mm.name : null; }).filter(Boolean);
+      const pill = h('button', { class: 'rx' + (list.includes(me) ? ' mine' : ''), onclick: () => react(channel, msg, key, url) },
+        icon, h('span', { class: 'rx-n' }, list.length), ...C.plugins.collect('reaction', { msg, key, list }));
+      pill.title = (names.length ? names.join(', ') : 'кто-то') + (list.length > names.length ? ` и ещё ${list.length - names.length}` : '');
+      row.append(pill);
+    }
+    return row;
+  }
+
+  function react(channel, msg, key, url) {
+    S.conn.send({ t: 'react', channel, id: msg.id, emoji: key, url: url || undefined });
+  }
+
+  // Мини-выбор реакции: быстрые эмодзи и свои эмодзи из библиотеки.
+  function reactionPicker(anchor, channel, msg) {
+    document.querySelectorAll('.rx-pop').forEach((x) => x.remove());
+    const own = C.stickerLib.categories.flatMap((c) => c.items.filter((i) => i.type === 'emoji')).slice(0, 24);
+    const pop = h('div', { class: 'rx-pop' },
+      h('div', { class: 'rx-grid' }, QUICK_REACTIONS.map((e) => h('button', { class: 'rx-opt', onclick: () => { react(channel, msg, e); pop.remove(); } }, e))),
+      own.length ? h('div', { class: 'rx-grid own' }, own.map((it) => h('button', { class: 'rx-opt', title: `:${it.name}:`, onclick: () => { react(channel, msg, `:${it.name}:`, it.url); pop.remove(); } }, C.media(it.url, 'emoji')))) : null);
+    document.body.append(pop);
+    const r = anchor.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(r.right - pop.offsetWidth, innerWidth - pop.offsetWidth - 8)) + 'px';
+    pop.style.top = (r.top - pop.offsetHeight - 6 < 40 ? r.bottom + 6 : r.top - pop.offsetHeight - 6) + 'px';
+    const off = (ev) => { if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener('mousedown', off); } };
+    setTimeout(() => document.addEventListener('mousedown', off), 0);
+  }
+
+  function setReply(msg) {
+    S.replyTo = msg ? { id: msg.id, name: msg.name, text: msg.text || (msg.sticker ? 'стикер' : '') } : null;
+    const bar = document.getElementById('reply-bar');
+    if (!bar) return;
+    if (!S.replyTo) { bar.replaceChildren(); bar.classList.remove('on'); return; }
+    bar.classList.add('on');
+    bar.replaceChildren(h('span', null, '↩ Ответ для ', h('b', null, S.replyTo.name), ': ', plainText(S.replyTo.text).slice(0, 80)),
+      h('button', { class: 'icon-btn', title: 'Отменить ответ', onclick: () => setReply(null) }, '✕'));
+    const f = document.querySelector('.composer .field');
+    if (f) f.focus();
+  }
+
+  function startEdit(node, msg, channel) {
+    if (S.editing) S.editing.cancel();
+    const textBox = node.querySelector('.text');
+    const area = h('textarea', { class: 'input edit-field', rows: 2, value: msg.text || '' });
+    const hint = h('div', { class: 'hint' }, 'Enter — сохранить, Esc — отмена');
+    const box = h('div', { class: 'edit-box' }, area, hint);
+    const cancel = () => { box.replaceWith(textBox || h('span')); S.editing = null; };
+    const save = () => {
+      const t = area.value.trim();
+      if (t && t !== msg.text) S.conn.send({ t: 'edit', channel, id: msg.id, text: t, emojis: C.stickerLib.usedEmojis(t) });
+      cancel();
+    };
+    area.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); } if (e.key === 'Escape') { e.stopPropagation(); cancel(); } });
+    if (textBox) textBox.replaceWith(box); else node.querySelector('.body').append(box);
+    S.editing = { cancel };
+    area.focus();
+    area.selectionStart = area.value.length;
+  }
+
+  function deleteMsg(msg, channel, ask = true) {
+    if (ask && !confirm('Удалить сообщение? (Shift+клик удаляет без вопроса)')) return;
+    S.conn.send({ t: 'delete', channel, id: msg.id });
+  }
+
+  function messageNode(shownIn, channel, cont) {
+    const msg = shownIn;
+    const shown = C.plugins.transformMessage(msg);
+    const media = shown.sticker ? C.media(shown.sticker, 'sticker') : null;
+    if (media) { media.dataset.url = shown.sticker; media.addEventListener('error', () => media.replaceWith(h('div', { class: 'hint' }, 'Стикер не загрузился'))); }
+    // Рамка, цвет и эффект имени берутся из текущего профиля автора, если он в комнате.
+    // Если автор сейчас в комнате, показываем его нынешнее имя и аватар (плагин мог подменить их в shown).
+    const mem = S.conn.members.get(shown.sid);
+    const live = mem && mem.uid === shown.uid && shown.name === msg.name;
+    const who = mem ? { ...mem, name: live ? mem.name : shown.name, avatar: live ? mem.avatar : shown.avatar } : { name: shown.name, avatar: shown.avatar };
+    const author = nameEl(who, { cls: 'author' });
+    author.addEventListener('click', () => { if (mem) openProfileCard(mem); });
+    const mine = shown.uid === S.conn.meId;
+    const canDelete = mine || S.conn.owner;
+    const tools = h('div', { class: 'msg-tools' },
+      h('button', { title: 'Реакция', onclick: (e) => reactionPicker(e.currentTarget, channel, msg) }, '😀'),
+      h('button', { title: 'Ответить', onclick: () => setReply(msg) }, '↩'),
+      mine && msg.text ? h('button', { title: 'Изменить', onclick: () => startEdit(node, msg, channel) }, '✎') : null,
+      canDelete ? h('button', { title: 'Удалить', class: 'danger', onclick: (e) => deleteMsg(msg, channel, !e.shiftKey) }, '🗑') : null,
+      ...C.plugins.collect('msgTools', { msg, channel }));
+    const mentionsMe = shown.text && S.profile.name && shown.text.toLowerCase().includes('@' + S.profile.name.toLowerCase());
+    const node = h('div', { class: 'msg' + (mine ? ' mine' : '') + (cont ? ' cont' : '') + (mentionsMe ? ' mention' : ''), dataset: { id: msg.id, uid: shown.uid || '', ts: String(shown.ts) },
+      oncontextmenu: (e) => contextMenu(e, [
+        { label: '😀 Реакция', onclick: () => reactionPicker(tools, channel, msg) },
+        { label: '↩ Ответить', onclick: () => setReply(msg) },
+        msg.text ? { label: '📋 Скопировать текст', onclick: () => copy(msg.text) } : null,
+        mine && msg.text ? { label: '✎ Изменить', onclick: () => startEdit(node, msg, channel) } : null,
+        canDelete ? { label: '🗑 Удалить', danger: true, onclick: () => deleteMsg(msg, channel) } : null,
+      ]) },
+    cont ? h('span', { class: 'cont-time' }, new Date(shown.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })) : avatarEl(who),
+    h('div', { class: 'body' },
+      shown.reply ? h('div', { class: 'reply-ref', onclick: () => { const t = msgNode(shown.reply.id); if (t) { t.scrollIntoView({ block: 'center', behavior: 'smooth' }); t.classList.add('flash'); setTimeout(() => t.classList.remove('flash'), 1200); } } },
+        h('span', { class: 'rr-arrow' }, '↱'), h('b', null, shown.reply.name), ' ', plainText(shown.reply.text)) : null,
+      cont ? null : h('div', { class: 'head' }, author, h('span', { class: 'time' }, fmtTime(shown.ts))),
+      shown.text ? richText(shown.text, shown.emojis) : null,
+      shown.edited && !shown.text ? h('span', { class: 'edited', title: 'Изменено ' + fmtTime(shown.edited) }, '(изменено)') : null,
+      media, reactionsRow(msg, channel)),
+    tools);
+    const textBox = node.querySelector('.body > .text');
+    if (shown.edited && textBox) textBox.append(h('span', { class: 'edited', title: 'Изменено ' + fmtTime(shown.edited) }, '(изменено)'));
+    for (const extra of C.plugins.collect('message', { msg: shown, node, channel })) if (extra.nodeType) node.querySelector('.body').append(extra);
+    return node;
+  }
+
+  // Подряд идущие сообщения одного автора в пределах 5 минут собираются в группу (без повторной шапки).
   function appendMessage(msg, stick) {
     const box = document.getElementById('messages');
     if (!box) return;
     const empty = box.querySelector('.empty');
     if (empty) empty.remove();
     const near = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
-    const shown = C.plugins.transformMessage(msg);
-    const media = shown.sticker ? C.media(shown.sticker, 'sticker') : null;
-    // Рамка, цвет и эффект имени берутся из текущего профиля автора, если он в комнате.
-    const mem = S.conn.members.get(shown.sid);
-    const who = mem ? { ...mem, name: shown.name, avatar: shown.avatar } : { name: shown.name, avatar: shown.avatar };
-    const author = nameEl(who, { cls: 'author' });
-    author.addEventListener('click', () => { if (mem) openProfileCard(mem); });
-    const mine = shown.uid === S.conn.meId;
-    box.append(h('div', { class: 'msg' + (mine ? ' mine' : '') + (stick ? ' new' : '') },
-      avatarEl(who),
-      h('div', { class: 'body' },
-        h('div', { class: 'head' }, author, h('span', { class: 'time' }, C.fmtTime(shown.ts))),
-        shown.text ? richText(shown.text, shown.emojis) : null, media)));
+    const prev = box.lastElementChild;
+    const cont = S.settings.groupMessages && S.settings.msgStyle !== 'compact' && prev && prev.classList.contains('msg') && !msg.reply &&
+      prev.dataset.uid === (msg.uid || '') && msg.ts - Number(prev.dataset.ts) < 5 * 60000;
+    const node = messageNode(msg, S.view.channel, cont);
+    if (stick) node.classList.add('new');
+    box.append(node);
     if (stick && near) box.scrollTop = box.scrollHeight;
+  }
+
+  // Перерисовать сообщения открытого канала, не трогая поле ввода (после включения плагина и т. п.).
+  function refreshMessages() {
+    const box = document.getElementById('messages');
+    if (!box || S.view.type !== 'text' || !S.conn) return;
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+    box.querySelectorAll('.msg').forEach((n) => n.remove());
+    for (const msg of S.conn.history.get(S.view.channel) || []) appendMessage(msg, false);
+    if (atBottom) box.scrollTop = box.scrollHeight;
   }
 
   function renderText(m) {
     const ch = S.conn.room.channels.find((c) => c.id === S.view.channel);
-    const messages = h('div', { class: 'messages', id: 'messages' });
+    if (!ch) { S.view = firstTextView(); renderMain(); return; }
+    const messages = h('div', { class: 'messages' + (ch.nsfw ? ' nsfw' : ''), id: 'messages' });
     const list = S.conn.history.get(ch.id) || [];
-    if (!list.length) messages.append(h('div', { class: 'empty' }, h('h3', null, `Это начало канала #${ch.name}`), h('div', null, 'Напишите первое сообщение.')));
+    if (!list.length) messages.append(h('div', { class: 'empty' }, h('h3', null, `Это начало канала #${ch.name}`), h('div', null, ch.topic || 'Напишите первое сообщение.')));
     const field = h('textarea', { class: 'field', rows: 1, placeholder: `Написать в #${ch.name}` });
     const submit = () => { sendText(field.value, ch.id); field.value = ''; field.style.height = ''; };
-    field.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
-    field.addEventListener('input', () => { field.style.height = 'auto'; field.style.height = Math.min(140, field.scrollHeight) + 'px'; });
+    field.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); return; }
+      if (e.key === 'Escape' && S.replyTo) { setReply(null); return; }
+      // Стрелка вверх в пустом поле — изменить своё последнее сообщение.
+      if (e.key === 'ArrowUp' && !field.value) {
+        const mineLast = [...(S.conn.history.get(ch.id) || [])].reverse().find((x) => x.uid === S.conn.meId && x.text);
+        const node = mineLast && msgNode(mineLast.id);
+        if (node) { e.preventDefault(); startEdit(node, mineLast, ch.id); }
+      }
+    });
+    field.addEventListener('input', () => {
+      field.style.height = 'auto'; field.style.height = Math.min(140, field.scrollHeight) + 'px';
+      if (field.value.trim() && !field.value.startsWith('/')) sendTyping(ch.id);
+    });
     let pop = null;
     const closePop = () => { if (pop) { pop.remove(); pop = null; } };
     const composer = h('div', { class: 'composer' }, field,
+      ...C.plugins.collect('composer', { channel: ch, field }),
       h('button', { class: 'btn', title: 'Стикеры и эмодзи', onclick: () => {
         if (pop) { closePop(); return; }
         pop = stickerPopup(ch.id, field, closePop);
         composer.append(pop);
       } }, '😀'),
       h('button', { class: 'btn primary', onclick: submit }, 'Отправить'));
-    m.replaceChildren(h('div', { class: 'main-head' }, h('span', { class: 'title' }, '# ' + ch.name)), messages, composer);
+    const head = h('div', { class: 'main-head' }, h('span', { class: 'title' }, '# ' + ch.name),
+      ch.nsfw ? h('span', { class: 'nsfw-pill' }, '18+') : null,
+      ch.topic ? h('span', { class: 'topic' }, ch.topic) : null, h('span', { class: 'spacer' }),
+      h('button', { class: 'icon-btn' + (S.settings.showMembers ? ' on' : ''), title: 'Список участников', onclick: () => { S.settings.showMembers = !S.settings.showMembers; saveSettings(); renderRight(); renderMain(); } }, '👥'));
+    m.replaceChildren(head, messages, h('div', { class: 'typing', id: 'typing' }), h('div', { class: 'reply-bar', id: 'reply-bar' }), composer);
     for (const msg of list) appendMessage(msg, false);
     messages.scrollTop = messages.scrollHeight;
+    renderTyping();
+    if (S.replyTo) setReply(S.replyTo.id ? (S.conn.history.get(ch.id) || []).find((x) => x.id === S.replyTo.id) || null : null);
     field.focus();
   }
 
@@ -619,7 +1152,7 @@
         h('div', { class: 'sticker-grid' + (type === 'emoji' ? ' emoji-grid' : '') }, items.length ? items.map((item) =>
           h('div', { class: 'st', title: type === 'emoji' ? `:${item.name}:` : item.name, onclick: () => {
             if (type === 'emoji') insertEmoji(item.name);
-            else { S.conn.send({ t: 'msg', channel, sticker: item.url }); close(); }
+            else { const out = { t: 'msg', channel, sticker: item.url }; if (S.replyTo) out.reply = S.replyTo.id; S.conn.send(out); setReply(null); close(); }
           } }, C.media(item.url, ''),
           h('button', { class: 'x', title: 'Удалить', onclick: (ev) => { ev.stopPropagation(); lib.removeItem(cat.id, item.id); draw(); } }, '✕'))) :
           [h('div', { class: 'hint', style: { gridColumn: '1 / -1' } }, 'В этой категории пока пусто. Добавьте ссылку ниже.')]),
@@ -629,14 +1162,23 @@
     return pop;
   }
 
-  // Голос
+  // ---------- Голос ----------
+  // Чей экран сейчас смотрим: другие видят это в плагине «Зрители трансляции».
+  function setWatching(sid) {
+    if (S.watching === sid) return;
+    S.watching = sid;
+    if (S.conn && S.voice && S.voice.channel) S.conn.send({ t: 'voice-flags', watching: sid });
+  }
+
   function renderVoice(m) {
     const ch = S.conn.room.channels.find((c) => c.id === S.view.channel);
+    if (!ch) { S.view = firstTextView(); renderMain(); return; }
     const v = S.voice;
     const here = v.channel === ch.id;
     const inside = (S.conn.voice[ch.id] || []).map((sid) => S.conn.members.get(sid)).filter(Boolean);
-    const head = h('div', { class: 'main-head' }, h('span', { class: 'title' }, '🔊 ' + ch.name));
+    const head = h('div', { class: 'main-head' }, h('span', { class: 'title' }, '🔊 ' + ch.name), ch.topic ? h('span', { class: 'topic' }, ch.topic) : null);
     if (!here) {
+      setWatching(null);
       m.replaceChildren(head, h('div', { class: 'voice-stage' },
         h('div', { class: 'empty' }, h('h3', null, ch.name), h('div', null, inside.length ? `Сейчас в канале: ${inside.map((x) => x.name).join(', ')}` : 'Здесь пока никого нет.'),
           h('button', { class: 'btn primary', style: { marginTop: '16px' }, onclick: async () => {
@@ -645,15 +1187,27 @@
       return;
     }
     const tiles = h('div', { class: 'tiles' });
+    let watched = null;
     for (const t of v.videoTiles()) {
       const who = S.conn.members.get(t.sid);
+      if (!t.mine && !watched) watched = t.sid;
       const video = h('video', { autoplay: true, playsInline: true, muted: true });
       video.srcObject = t.stream;
-      tiles.append(h('div', { class: 'tile big' }, video, h('div', { class: 'label' }, `${who ? who.name : '?'} — экран`),
-        h('button', { class: 'btn fs', onclick: () => video.requestFullscreen && video.requestFullscreen() }, '⛶')));
+      const tile = h('div', { class: 'tile big', dataset: { screen: t.sid } }, video, h('div', { class: 'label' }, `${who ? who.name : '?'} — экран`),
+        h('button', { class: 'btn fs', onclick: () => video.requestFullscreen && video.requestFullscreen() }, '⛶'));
+      for (const extra of C.plugins.collect('voiceTile', { sid: t.sid, mine: t.mine, kind: 'screen' })) tile.append(extra);
+      tiles.append(tile);
     }
+    setWatching(watched);
     for (const u of inside) {
-      tiles.append(h('div', { class: 'tile', dataset: { sid: u.sid } }, avatarEl(u), h('div', { class: 'label' }, u.name + (u.sid === S.conn.sid ? ' (вы)' : ''))));
+      const tile = h('div', { class: 'tile', dataset: { sid: u.sid } }, avatarEl(u),
+        h('div', { class: 'label' }, u.name + (u.sid === S.conn.sid ? ' (вы)' : ''), u.muted ? ' 🔇' : '', u.deaf ? ' 🙉' : ''),
+        u.sid !== S.conn.sid ? h('span', { class: 'net' }) : null);
+      if (u.sid !== S.conn.sid) {
+        tile.addEventListener('contextmenu', (e) => contextMenu(e, [{ label: '🔊 Громкость…', onclick: () => volumeDialog(u) }, { label: '👤 Профиль', onclick: () => openProfileCard(u) }]));
+      }
+      for (const extra of C.plugins.collect('voiceTile', { sid: u.sid, mine: u.sid === S.conn.sid, kind: 'user' })) tile.append(extra);
+      tiles.append(tile);
     }
     const sharing = !!v.screenStream;
     m.replaceChildren(head, h('div', { class: 'voice-stage' }, tiles),
@@ -663,6 +1217,15 @@
         h('button', { class: 'btn' + (sharing ? ' primary' : ''), onclick: () => (sharing ? v.stopScreen() : pickScreen()) }, sharing ? '⏹ Остановить показ' : '🖥 Показать экран'),
         h('button', { class: 'btn danger', onclick: () => v.leave() }, '📞 Выйти')));
     updateSpeaking();
+    updateNetStats();
+  }
+
+  function volumeDialog(u) {
+    const cur = S.voice.volumes.has(u.sid) ? S.voice.volumes.get(u.sid) : 1;
+    const label = h('label', { class: 'lbl' }, `Громкость: ${Math.round(cur * 100)}%`);
+    const r = h('input', { type: 'range', min: 0, max: 100, value: Math.round(cur * 100) });
+    r.addEventListener('input', () => { S.voice.setVolume(u.sid, Number(r.value) / 100); label.textContent = `Громкость: ${r.value}%`; });
+    modal(h('div', { class: 'modal-body' }, h('h3', { style: { marginTop: 0 } }, u.name), label, r, h('div', { class: 'hint' }, 'Действует только у вас.')));
   }
 
   async function pickScreen() {
@@ -689,8 +1252,9 @@
 
   function setStatus(v) {
     S.status = v;
+    S.idle = false;
     store.set('status', v);
-    if (S.conn) S.conn.send({ t: 'status', status: v });
+    if (S.conn) S.conn.send({ t: 'status', status: wireStatus() });
     renderUserbar();
   }
 
@@ -707,9 +1271,9 @@
     let editing = false;
     const draw = () => {
       const invisible = S.status === 'invisible';
-      const me = { ...S.profile, sid: '', status: invisible ? 'offline' : 'online', activity: S.activity };
-      const pc = /^#[0-9a-f]{6}$/i.test(me.color || '') ? me.color : null;
-      const banner = h('div', { class: 'sm-banner', style: { ...bgStyle(me.banner), ...(pc && !C.safeUrl(me.banner) ? { background: `linear-gradient(135deg, ${pc}, #120407)` } : {}) } });
+      const me = { ...S.profile, sid: '', status: invisible ? 'offline' : wireStatus(), activity: S.activity };
+      const pc = HEX.test(me.color || '') ? me.color : null;
+      const banner = h('div', { class: 'sm-banner', style: { ...bgStyle(me.banner), ...(pc && !C.safeUrl(me.banner) ? { background: `linear-gradient(135deg, ${pc}, ${HEX.test(me.color2 || '') ? me.color2 : '#120407'})` } : {}) } });
       const input = h('input', { class: 'input', value: S.profile.custom || '', maxLength: 60, placeholder: 'Что у вас происходит?' });
       const finish = (save) => { editing = false; if (save) saveCustomStatus(input.value.trim()); draw(); };
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') { e.stopPropagation(); finish(false); } });
@@ -717,16 +1281,18 @@
         : h('div', { class: 'sm-bubble' + (S.profile.custom ? '' : ' empty'), title: 'Изменить статус-фразу', onclick: () => { editing = true; draw(); input.focus(); } },
           S.profile.custom || '+ Статус-фраза');
       const item = (icon, label, onclick, chevron) => h('div', { class: 'sm-item', onclick }, h('span', { class: 'ic' }, icon), h('span', { class: 'grow' }, label), chevron ? h('span', { class: 'chev' }, chevron) : null);
-      const opts = statusOpen ? h('div', { class: 'sm-sub' }, [['online', '🟢', 'В сети'], ['invisible', '⚫', 'Невидимка']].map(([id, ic, label]) =>
+      const cur = STATUSES.find((x) => x[0] === S.status) || STATUSES[0];
+      const opts = statusOpen ? h('div', { class: 'sm-sub' }, STATUSES.map(([id, ic, label]) =>
         h('div', { class: 'sm-item' + (S.status === id ? ' on' : ''), onclick: () => { setStatus(id); draw(); } }, h('span', { class: 'ic' }, ic), h('span', { class: 'grow' }, label), S.status === id ? h('span', null, '✓') : null))) : null;
       const card = h('div', null, banner,
         h('div', { class: 'sm-head' }, avatarEl(me, { status: me.status, cls: 'lg' }), bubble),
         h('div', { class: 'sm-who' }, h('div', { class: 'sm-name' }, nameEl(me)),
-          h('div', { class: 'hint' }, [me.pronouns, S.activity ? 'Играет: ' + S.activity.name : ''].filter(Boolean).join(' · ') || (invisible ? 'Невидимка' : 'В сети'))),
+          h('div', { class: 'hint' }, [me.pronouns, S.activity ? (S.activity.kind === 'music' ? 'Слушает: ' : 'Играет: ') + S.activity.name : ''].filter(Boolean).join(' · ') || cur[2])),
         h('div', { class: 'sm-list' },
           item('✎', 'Редактировать профиль', () => { closeSelfMenu(); openSettings('profile'); }),
-          item(invisible ? '⚫' : '🟢', invisible ? 'Невидимка' : 'В сети', () => { statusOpen = !statusOpen; draw(); }, statusOpen ? '⌄' : '›'), opts),
-        h('div', { class: 'sm-list' }, item('⚙', 'Настройки', () => { closeSelfMenu(); openSettings(); }),
+          item(cur[1], cur[2], () => { statusOpen = !statusOpen; draw(); }, statusOpen ? '⌄' : '›'), opts),
+        h('div', { class: 'sm-list' }, item('🎨', 'Внешний вид', () => { closeSelfMenu(); openSettings('look'); }),
+          item('⚙', 'Настройки', () => { closeSelfMenu(); openSettings(); }),
           item('🔔', 'Уведомления', () => { closeSelfMenu(); openSettings('notify'); })));
       const cf = me.cardFrame ? C.media(me.cardFrame, 'card-frame') : null;
       if (cf) cf.addEventListener('error', () => cf.remove());
@@ -747,25 +1313,44 @@
 
   // ---------- Карточка профиля ----------
   // Карточка профиля: используется и в окне профиля, и в предпросмотре редактора.
-  function profileCardNode(u) {
-    const pc = /^#[0-9a-f]{6}$/i.test(u.color || '') ? u.color : null;
+  function profileCardNode(u, { live = true } = {}) {
+    const pc = HEX.test(u.color || '') ? u.color : null;
+    const pc2 = HEX.test(u.color2 || '') ? u.color2 : null;
     const bannerStyle = { ...bgStyle(u.banner) };
-    if (!C.safeUrl(u.banner) && pc) bannerStyle.background = `linear-gradient(135deg, ${pc}, #120407)`;
-    const bg = h('div', { class: 'profile-banner', style: bannerStyle });
+    if (!C.safeUrl(u.banner) && pc) bannerStyle.background = `linear-gradient(135deg, ${pc}, ${pc2 || '#120407'})`;
+    const bg = h('div', { class: 'profile-banner', style: bannerStyle, dataset: { view: C.safeUrl(u.banner) || '' } });
     const banner = C.safeUrl(u.banner);
-    const bannerMedia = banner && /\.(mp4|webm)(\?|$)/i.test(banner) ? C.media(banner, '') : null;
+    const bannerMedia = banner && isVideoUrl(banner) ? C.media(banner, '') : null;
     if (bannerMedia) { bannerMedia.style.cssText = 'width:100%;height:100%;object-fit:cover'; bg.append(bannerMedia); }
     const title = h('h2', { style: { margin: '8px 0 0' } }, nameEl(u));
-    const body = h('div', { class: 'profile-body' }, avatarEl(u, { status: u.status, cls: 'lg' }), title,
+    const badges = (u.badges || []).filter((b) => BADGES[b]);
+    const links = (u.links || []).filter((l) => l && (l.label || l.url));
+    const sinceLine = u.since ? 'В комнате с ' + new Date(u.since).toLocaleDateString('ru-RU') : '';
+    const body = h('div', { class: 'profile-body' }, avatarEl(u, { status: u.status, cls: 'lg' }),
+      badges.length || u.host ? h('div', { class: 'badges' }, u.host ? h('span', { class: 'bdg', title: 'Хозяин комнаты' }, '👑') : null,
+        badges.map((b) => h('span', { class: 'bdg', title: BADGES[b][1] }, BADGES[b][0]))) : null,
+      title,
       u.pronouns ? h('div', { class: 'pronouns' }, u.pronouns) : null,
       h('div', { class: 'hint' }, u.custom ? u.custom : statusLabel(u)),
-      u.bio ? h('div', { style: { marginTop: '12px', whiteSpace: 'pre-wrap' } }, u.bio) : null,
-      u.activity ? h('div', { class: 'contact-card', style: { marginTop: '14px' } }, h('div', { class: 'game' }, 'Играет'), h('b', null, u.activity.name),
-        h('div', { class: 'game' }, [u.activity.details, u.activity.state].filter(Boolean).join(' · ')), h('div', { class: 'game' }, C.fmtElapsed(u.activity.startedAt))) : null);
+      u.bio ? h('div', { class: 'bio' }, inline(u.bio, null, { emoji: 0 })) : null,
+      links.length ? h('div', { class: 'links' }, links.map((l) => h('span', { class: 'plink', title: l.url ? 'Нажмите, чтобы скопировать' : '', onclick: () => l.url && copy(l.url) }, '🔗 ', l.label || l.url))) : null,
+      u.activity ? h('div', { class: 'contact-card', style: { marginTop: '14px' } }, h('div', { class: 'game' }, u.activity.kind === 'music' ? 'Слушает' : 'Играет'), h('b', null, u.activity.name),
+        h('div', { class: 'game' }, [u.activity.details, u.activity.state].filter(Boolean).join(' · ')), u.activity.kind !== 'music' ? h('div', { class: 'game' }, C.fmtElapsed(u.activity.startedAt)) : null) : null,
+      sinceLine ? h('div', { class: 'hint', style: { marginTop: '10px' } }, sinceLine) : null,
+      ...(live ? C.plugins.collect('profile', { user: u }) : []));
     const cardFrame = u.cardFrame ? C.media(u.cardFrame, 'card-frame') : null;
     if (cardFrame) cardFrame.addEventListener('error', () => cardFrame.remove());
-    const wrap = h('div', { class: 'profile-card-bg', style: bgStyle(u.bg) }, bg, body, cardFrame);
+    const fx = u.effect && u.effect !== 'none' ? h('canvas', { class: 'fx-canvas' }) : null;
+    const wrap = h('div', { class: 'profile-card-bg cs-' + (u.cardStyle || 'default'), style: bgStyle(u.bg) }, bg, body, fx, cardFrame);
     if (pc) wrap.style.setProperty('--pc', pc);
+    if (pc && pc2) wrap.style.setProperty('--pc2', pc2);
+    if (fx) {
+      // Эффект запускается, когда карточка появилась на странице, и сам останавливается, когда её убрали.
+      requestAnimationFrame(() => {
+        const run = C.particles(fx, u.effect, { count: 36, color: u.effect === 'sparkles' || u.effect === 'stars' ? pc || '#ffffff' : undefined });
+        const stopWhenGone = setInterval(() => { if (!fx.isConnected) { run.stop(); clearInterval(stopWhenGone); } }, 1000);
+      });
+    }
     return wrap;
   }
 
@@ -780,7 +1365,7 @@
             if (confirm(`Заблокировать ${u.name}? Он не сможет войти снова.`)) { S.conn.send({ t: 'kick', sid: u.sid, ban: true }); dlg.close(); }
           } }, 'Заблокировать'))));
     }
-    const dlg = modal(card);
+    const dlg = modal(card, { cls: 'profile-modal' });
   }
 
   // ---------- Настройки ----------
@@ -796,6 +1381,12 @@
     const s = h('select', { class: 'input' }, options.map(([v, l]) => h('option', { value: v, selected: String(v) === String(value) }, l)));
     s.addEventListener('change', () => onChange(s.value));
     return s;
+  }
+  function range(label, min, max, step, value, fmt, onInput) {
+    const lbl = h('label', { class: 'lbl' }, `${label}: ${fmt(value)}`);
+    const r = h('input', { type: 'range', min, max, step, value });
+    r.addEventListener('input', () => { lbl.textContent = `${label}: ${fmt(Number(r.value))}`; onInput(Number(r.value)); });
+    return h('div', null, lbl, r);
   }
 
   function urlField(label, key, draft, note, onInput) {
@@ -820,54 +1411,99 @@
     return box;
   }
 
-  function sectionProfile() {
-    const draft = { ...PROFILE_DEFAULTS, ...S.profile };
+  // Цвет с кнопкой «нет»: пустая строка означает «не задан».
+  function colorPick(label, draft, key, fallback, onChange) {
+    const c = h('input', { type: 'color', value: HEX.test(draft[key] || '') ? draft[key] : fallback });
+    const state = h('span', { class: 'hint' }, HEX.test(draft[key] || '') ? draft[key] : 'не задан');
+    c.addEventListener('input', () => { draft[key] = c.value; state.textContent = c.value; onChange(); });
+    return h('div', null, h('label', { class: 'lbl' }, label), h('div', { class: 'row' }, c, h('button', { class: 'btn', onclick: () => { draft[key] = ''; state.textContent = 'не задан'; onChange(); } }, 'Сбросить'), state));
+  }
+
+  function sectionProfile(redraw) {
+    const draft = S.profileDraft || { ...PROFILE_DEFAULTS, ...S.profile, badges: [...(S.profile.badges || [])], links: (S.profile.links || []).map((l) => ({ ...l })) };
+    S.profileDraft = draft;
+    const tab = S.profileTab || 'main';
     const preview = h('div', { class: 'preview' });
-    const update = () => preview.replaceChildren(profileCardNode({ ...draft, sid: '', status: S.status === 'invisible' ? 'offline' : 'online', activity: S.activity }));
+    const update = () => preview.replaceChildren(profileCardNode({ ...draft, sid: '', status: S.status === 'invisible' ? 'offline' : wireStatus(), activity: S.activity }, { live: false }),
+      h('div', { class: 'preview-row' }, h('div', { class: 'hint' }, 'В списке участников:'), memberRow({ ...draft, sid: '', status: 'online', activity: null })));
     const text = (key, max, placeholder) => {
       const i = h('input', { class: 'input', value: draft[key] || '', maxLength: max, placeholder: placeholder || '' });
       i.addEventListener('input', () => { draft[key] = i.value; update(); });
       return i;
     };
-    const bio = h('textarea', { class: 'input', rows: 3, maxLength: 190, value: draft.bio || '' });
-    bio.addEventListener('input', () => { draft.bio = bio.value; update(); });
-    const status = select([['online', 'В сети'], ['invisible', 'Невидимка (друзья видят вас как «не в сети»)']], S.status, (v) => {
-      S.status = v; store.set('status', v);
-      if (S.conn) S.conn.send({ t: 'status', status: v });
-      renderUserbar();
-      update();
-    });
-    const color = h('input', { type: 'color', value: /^#[0-9a-f]{6}$/i.test(draft.color) ? draft.color : S.settings.accent });
-    color.addEventListener('input', () => { draft.color = color.value; update(); });
-    const form = h('div', { class: 'form' },
-      field('Имя', text('name', 32)),
-      h('div', { class: 'row wrap' }, h('div', { class: 'grow' }, field('Тег (до 4 символов)', text('tag', 4, 'CRS'))), h('div', { class: 'grow' }, field('Местоимения', text('pronouns', 24)))),
-      field('Статус-фраза', text('custom', 60, 'Например: не беспокоить')),
-      field('О себе', bio),
-      h('label', { class: 'lbl' }, 'Цвет профиля'),
-      h('div', { class: 'row' }, color, h('button', { class: 'btn', onclick: () => { draft.color = ''; update(); } }, 'Сбросить'),
-        h('div', { class: 'hint' }, 'Цвет имени, баннера без картинки и рамки карточки.')),
-      h('label', { class: 'lbl' }, 'Рамка аватара'), chips(FRAMES, draft.frame, (v) => { draft.frame = v; update(); }),
-      h('label', { class: 'lbl' }, 'Эффект имени'), chips(NAME_FX, draft.nameFx, (v) => { draft.nameFx = v; update(); }),
-      urlField('Аватар (ссылка)', 'avatar', draft, 'Картинку загружает у друга его клиент по этой ссылке.', update),
-      urlField('Баннер (ссылка)', 'banner', draft, 'Подойдёт и GIF.', update), urlField('Фон профиля (ссылка)', 'bg', draft, 'Подойдёт и GIF.', update),
-      h('label', { class: 'lbl' }, 'Свои рамки'),
-      urlField('Рамка аватара (ссылка)', 'frameUrl', draft, 'PNG, GIF или WebP с прозрачным центром. Рисуется поверх аватара и чуть больше его.', update),
-      urlField('Рамка карточки профиля (ссылка)', 'cardFrame', draft, 'Картинка с прозрачной серединой, растягивается на всю карточку.', update),
-      field('Статус', status),
-      h('div', { class: 'row', style: { marginTop: '20px' } }, h('button', { class: 'btn primary', onclick: () => {
-        S.profile = {
-          ...PROFILE_DEFAULTS, ...draft, name: (draft.name || '').trim() || 'Игрок', tag: (draft.tag || '').trim().slice(0, 4),
-          avatar: C.safeUrl(draft.avatar) || '', banner: C.safeUrl(draft.banner) || '', bg: C.safeUrl(draft.bg) || '',
-          frameUrl: C.safeUrl(draft.frameUrl) || '', cardFrame: C.safeUrl(draft.cardFrame) || '',
-        };
-        saveProfile();
-        if (S.conn) S.conn.send({ t: 'profile', ...profileFields(S.profile) });
-        renderAll();
-        C.toast('Профиль сохранён');
-      } }, 'Сохранить')));
+    const tabs = h('div', { class: 'tabs sub-tabs' }, [['main', 'Основное'], ['style', 'Оформление'], ['card', 'Карточка'], ['badges', 'Значки и ссылки']].map(([id, label]) =>
+      h('div', { class: 'tab' + (tab === id ? ' on' : ''), onclick: () => { S.profileTab = id; redraw(); } }, label)));
+    let body;
+    if (tab === 'main') {
+      const bio = h('textarea', { class: 'input', rows: 3, maxLength: 190, value: draft.bio || '' });
+      bio.addEventListener('input', () => { draft.bio = bio.value; update(); });
+      body = h('div', null,
+        field('Имя', text('name', 32)),
+        h('div', { class: 'row wrap' }, h('div', { class: 'grow' }, field('Тег (до 4 символов)', text('tag', 4, 'CRS'))), h('div', { class: 'grow' }, field('Местоимения', text('pronouns', 24)))),
+        field('Статус-фраза', text('custom', 60, 'Например: не беспокоить')),
+        field('О себе', bio, 'Можно **жирный**, *курсив*, ||спойлер||.'),
+        urlField('Аватар (ссылка)', 'avatar', draft, 'Картинку загружает у друга его клиент по этой ссылке. GIF тоже можно.', update),
+        field('Статус', select(STATUSES.map(([id, ic, l]) => [id, `${ic} ${l}`]), S.status, (v) => { setStatus(v); update(); })));
+    } else if (tab === 'style') {
+      body = h('div', null,
+        h('label', { class: 'lbl' }, 'Рамка аватара'), chips(FRAMES, draft.frame, (v) => { draft.frame = v; update(); }),
+        urlField('Своя рамка аватара (ссылка)', 'frameUrl', draft, 'PNG, GIF или WebP с прозрачным центром. Рисуется поверх аватара и чуть больше его.', update),
+        h('label', { class: 'lbl' }, 'Эффект имени'), chips(NAME_FX, draft.nameFx, (v) => { draft.nameFx = v; update(); }),
+        h('label', { class: 'lbl' }, 'Шрифт имени'), chips(NAME_FONTS, draft.nameFont, (v) => { draft.nameFont = v; update(); }),
+        h('div', { class: 'row wrap' }, h('div', { class: 'grow' }, colorPick('Цвет имени', draft, 'nameColor', S.settings.accent, update)),
+          h('div', { class: 'grow' }, colorPick('Второй цвет имени (градиент)', draft, 'nameColor2', '#ffffff', update))),
+        h('div', { class: 'hint' }, 'Эффект имени важнее цвета: чтобы был виден свой цвет, выберите «Обычное».'),
+        h('label', { class: 'lbl' }, 'Табличка в списке участников'), chips(PLATES, draft.plate, (v) => { draft.plate = v; update(); }),
+        urlField('Своя табличка (ссылка на картинку)', 'plateUrl', draft, 'Широкая картинка или GIF за вашим именем в списке участников.', update));
+    } else if (tab === 'card') {
+      body = h('div', null,
+        h('div', { class: 'row wrap' }, h('div', { class: 'grow' }, colorPick('Цвет профиля', draft, 'color', S.settings.accent, update)),
+          h('div', { class: 'grow' }, colorPick('Второй цвет (градиент карточки)', draft, 'color2', '#120407', update))),
+        h('label', { class: 'lbl' }, 'Стиль карточки'), chips(CARD_STYLES, draft.cardStyle, (v) => { draft.cardStyle = v; update(); }),
+        h('label', { class: 'lbl' }, 'Эффект профиля'), chips(EFFECTS, draft.effect, (v) => { draft.effect = v; update(); }),
+        urlField('Баннер (ссылка)', 'banner', draft, 'Подойдёт и GIF.', update), urlField('Фон профиля (ссылка)', 'bg', draft, 'Подойдёт и GIF.', update),
+        urlField('Рамка карточки профиля (ссылка)', 'cardFrame', draft, 'Картинка с прозрачной серединой, растягивается на всю карточку.', update));
+    } else {
+      const badgeBox = h('div', { class: 'badge-pick' });
+      const drawBadges = () => badgeBox.replaceChildren(...Object.entries(BADGES).map(([id, [ic, label]]) => {
+        const on = draft.badges.includes(id);
+        return h('div', { class: 'chip' + (on ? ' on' : ''), onclick: () => {
+          if (on) draft.badges = draft.badges.filter((x) => x !== id);
+          else if (draft.badges.length < 6) draft.badges = [...draft.badges, id];
+          else C.toast('Не больше шести значков');
+          drawBadges(); update();
+        } }, `${ic} ${label}`);
+      }));
+      drawBadges();
+      const linkRows = h('div');
+      const drawLinks = () => linkRows.replaceChildren(...[0, 1, 2].map((i) => {
+        const l = draft.links[i] || { label: '', url: '' };
+        const a = h('input', { class: 'input', value: l.label, maxLength: 20, placeholder: 'Подпись (Steam, Twitch…)' });
+        const b = h('input', { class: 'input', value: l.url, maxLength: 120, placeholder: 'Ссылка или ник' });
+        const sync = () => { draft.links[i] = { label: a.value, url: b.value }; draft.links = draft.links.filter(Boolean); update(); };
+        a.addEventListener('input', sync); b.addEventListener('input', sync);
+        return h('div', { class: 'row', style: { marginBottom: '6px' } }, h('div', { style: { width: '40%' } }, a), h('div', { class: 'grow' }, b));
+      }));
+      drawLinks();
+      body = h('div', null, h('label', { class: 'lbl' }, 'Значки (до шести)'), badgeBox,
+        h('label', { class: 'lbl' }, 'Ссылки в профиле'), linkRows,
+        h('div', { class: 'hint' }, 'Ссылки не открываются по клику, а копируются: так никто не узнает ваш IP через подставную ссылку.'));
+    }
+    const save = h('div', { class: 'row', style: { marginTop: '20px' } }, h('button', { class: 'btn primary', onclick: () => {
+      S.profile = {
+        ...PROFILE_DEFAULTS, ...draft, name: (draft.name || '').trim() || 'Игрок', tag: (draft.tag || '').trim().slice(0, 4),
+        avatar: C.safeUrl(draft.avatar) || '', banner: C.safeUrl(draft.banner) || '', bg: C.safeUrl(draft.bg) || '',
+        frameUrl: C.safeUrl(draft.frameUrl) || '', cardFrame: C.safeUrl(draft.cardFrame) || '', plateUrl: C.safeUrl(draft.plateUrl) || '',
+        links: (draft.links || []).filter((l) => l && (l.label || l.url)).slice(0, 3),
+      };
+      saveProfile();
+      S.profileDraft = null;
+      if (S.conn) S.conn.send({ t: 'profile', ...profileFields(S.profile) });
+      renderAll();
+      C.toast('Профиль сохранён');
+    } }, 'Сохранить'), h('button', { class: 'btn', onclick: () => { S.profileDraft = null; redraw(); } }, 'Отменить изменения'));
     update();
-    return h('div', null, h('h2', null, 'Мой профиль'), h('div', { class: 'editor' }, form, preview));
+    return h('div', null, h('h2', null, 'Мой профиль'), tabs, h('div', { class: 'editor' }, h('div', { class: 'form' }, body, save), preview));
   }
 
   function sectionVoice(redraw) {
@@ -896,12 +1532,7 @@
         switchRow('Подавление эха', S.settings.echo, (v) => { S.settings.echo = v; saveSettings(); }),
         switchRow('Шумоподавление', S.settings.noise, (v) => { S.settings.noise = v; saveSettings(); }),
         switchRow('Автоматическая громкость', S.settings.agc, (v) => { S.settings.agc = v; saveSettings(); })) : null,
-      h('label', { class: 'lbl' }, `Качество звука: ${S.settings.audioKbps} кбит/с, стерео Opus`),
-      (() => {
-        const r = h('input', { type: 'range', min: 32, max: 510, step: 2, value: S.settings.audioKbps });
-        r.addEventListener('input', () => { S.settings.audioKbps = Number(r.value); saveSettings(); r.previousSibling.textContent = `Качество звука: ${r.value} кбит/с, стерео Opus`; });
-        return r;
-      })(),
+      range('Качество звука', 32, 510, 2, S.settings.audioKbps, (v) => `${v} кбит/с, стерео Opus`, (v) => { S.settings.audioKbps = v; saveSettings(); }),
       h('div', { class: 'hint' }, 'Применяется при следующем входе в голосовой канал. 128 — отлично для голоса, 256 и выше — для музыки.'));
   }
 
@@ -910,24 +1541,108 @@
       field('Разрешение', select([[720, '720p'], [1080, '1080p'], [1440, '1440p'], [2160, '4K']], S.settings.screenRes, (v) => { S.settings.screenRes = Number(v); saveSettings(); })),
       field('Кадров в секунду', select([[15, '15'], [30, '30'], [60, '60'], [120, '120']], S.settings.screenFps, (v) => { S.settings.screenFps = Number(v); saveSettings(); })),
       field('Битрейт', select([[3, '3 Мбит/с'], [6, '6 Мбит/с'], [8, '8 Мбит/с'], [12, '12 Мбит/с'], [20, '20 Мбит/с'], [40, '40 Мбит/с']], S.settings.screenMbps, (v) => { S.settings.screenMbps = Number(v); saveSettings(); }),
-        'Выше битрейт — лучше картинка, но нужна быстрая сеть. В локальной сети хватает и 40.'),
+        'Выше битрейт — лучше картинка, но нужна быстрая сеть. Для зрителей в той же локальной сети битрейт поднимается сам (Настройки → Сеть).'),
       field('Что важнее', select([['detail', 'Чёткость (текст, интерфейсы)'], ['fps', 'Плавность (игры)']], S.settings.screenPrefer, (v) => { S.settings.screenPrefer = v; saveSettings(); })),
       switchRow('Передавать звук экрана', S.settings.screenAudio, (v) => { S.settings.screenAudio = v; saveSettings(); }, 'Работает на Windows: звук системы целиком.'));
   }
 
+  // ---------- Внешний вид ----------
+  function applyLook() {
+    const s = S.settings;
+    const b = document.body;
+    b.dataset.design = s.design;
+    const mode = s.mode === 'auto' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : s.mode;
+    b.dataset.mode = mode;
+    b.style.setProperty('--fs', Math.min(20, Math.max(11, s.fontSize)) + 'px');
+    if (s.round == null) b.style.removeProperty('--round'); else b.style.setProperty('--round', String(s.round));
+    b.style.setProperty('--av-r', { circle: '50%', squircle: '32%', square: '14%' }[s.avatarShape] || '50%');
+    const fonts = { system: "'Segoe UI', system-ui, sans-serif", inter: "'Inter', 'Segoe UI', sans-serif", roboto: "'Roboto Flex', 'Segoe UI', sans-serif",
+      serif: "'Source Serif 4', Georgia, serif", mono: "Consolas, 'Cascadia Mono', monospace" };
+    for (const v of ['--font', '--font-head', '--font-msg']) { if (fonts[s.font]) b.style.setProperty(v, fonts[s.font]); else b.style.removeProperty(v); }
+    b.classList.remove('dense-compact', 'dense-cozy', 'dense-spacious', 'msgs-list', 'msgs-bubbles', 'msgs-compact');
+    b.classList.add('dense-' + s.density, 'msgs-' + s.msgStyle);
+    b.classList.toggle('gif-hover', !!s.gifHover);
+    // Фон приложения по ссылке: с затемнением и размытием, чтобы текст оставался читаемым.
+    let bg = document.getElementById('app-bg');
+    const url = C.safeUrl(s.appBg);
+    if (url) {
+      if (!bg) { bg = h('div', { id: 'app-bg' }); document.body.prepend(bg); }
+      bg.replaceChildren();
+      bg.style.backgroundImage = isVideoUrl(url) ? '' : `url("${url}")`;
+      if (isVideoUrl(url)) bg.append(C.media(url, 'bg-media'));
+      bg.style.setProperty('--dim', String(s.appBgDim / 100));
+      bg.style.setProperty('--blur', s.appBgBlur + 'px');
+      b.classList.add('has-app-bg');
+    } else { if (bg) bg.remove(); b.classList.remove('has-app-bg'); }
+    let qc = document.getElementById('quick-css');
+    if (!qc) { qc = h('style', { id: 'quick-css' }); document.head.append(qc); }
+    qc.textContent = s.quickCss || '';
+    C.applyAccent(S.accentOverride || s.accent);
+    // Кнопки окна (свернуть, закрыть) красятся под тему.
+    requestAnimationFrame(() => {
+      const tb = document.getElementById('titlebar');
+      if (!tb || !native.setTitleBar) return;
+      const cs = getComputedStyle(tb);
+      native.setTitleBar({ color: opaque(cs.backgroundColor, mode), symbolColor: opaque(cs.color, mode) }).catch(() => {});
+    });
+  }
+
+  // Цвет кнопок окна должен быть непрозрачным: полупрозрачный смешиваем с фоном режима.
+  function opaque(color, mode) {
+    const m = /rgba?\(([^)]+)\)/.exec(color || '');
+    if (!m) return mode === 'light' ? '#f4f3f6' : '#0a0305';
+    const [r, g, b, a = 1] = m[1].split(',').map((x) => Number(x.trim()));
+    const base = mode === 'light' ? [244, 243, 246] : [16, 16, 22];
+    const mix = [r, g, b].map((c, i) => Math.round(c * a + base[i] * (1 - a)));
+    return '#' + mix.map((c) => c.toString(16).padStart(2, '0')).join('');
+  }
+
   function sectionLook(redraw) {
-    const color = h('input', { type: 'color', value: S.settings.accent });
-    color.addEventListener('input', () => { S.settings.accent = color.value; C.applyAccent(color.value); saveSettings(); });
-    const power = h('input', { type: 'range', min: 0, max: 100, step: 1, value: S.settings.glowPower });
-    power.addEventListener('input', () => { S.settings.glowPower = Number(power.value); saveSettings(); });
-    return h('div', null, h('h2', null, 'Внешний вид'), h('label', { class: 'lbl' }, 'Цвет интерфейса'),
-      h('div', { class: 'row wrap' }, color, ...ACCENTS.map((c) => h('button', { class: 'rail-btn', style: { background: c, width: '28px', height: '28px' }, title: c,
-        onclick: () => { S.settings.accent = c; C.applyAccent(c); saveSettings(); redraw(); } }))),
-      switchRow('Свечение за курсором', S.settings.cursorGlow, (v) => { S.settings.cursorGlow = v; saveSettings(); }, 'Мягкий градиент плавно следует за мышью.'),
-      h('label', { class: 'lbl' }, 'Яркость свечения'), power,
-      switchRow('Анимации интерфейса', S.settings.animations, (v) => { S.settings.animations = v; saveSettings(); applyAnimations(); }, 'Плавные появления, наведения и пульсации.'),
+    const s = S.settings;
+    const set = (k, v, re) => { s[k] = v; saveSettings(); applyLook(); if (re) redraw(); };
+    const color = h('input', { type: 'color', value: s.accent });
+    color.addEventListener('input', () => { s.accent = color.value; saveSettings(); applyLook(); });
+    const designCards = h('div', { class: 'design-grid' }, DESIGNS.map(([id, name, desc, accent, mode]) =>
+      h('div', { class: 'design-card' + (s.design === id ? ' on' : ''), dataset: { d: id }, onclick: () => {
+        s.design = id; s.accent = accent; s.mode = mode; s.round = null;
+        saveSettings(); applyLook(); redraw();
+      } }, h('div', { class: 'design-thumb', dataset: { d: id } }, h('i'), h('i'), h('i'), h('b', { style: { background: accent } })),
+      h('div', { class: 'design-name' }, name), h('div', { class: 'hint' }, desc))));
+    const bgDraft = { appBg: s.appBg };
+    const quick = h('textarea', { class: 'input code', rows: 6, value: s.quickCss, placeholder: '/* Свой CSS, применяется сразу. Например:\n.msg .text { font-size: 15px; } */' });
+    quick.addEventListener('input', () => { s.quickCss = quick.value; saveSettings(); applyLook(); });
+    return h('div', null, h('h2', null, 'Внешний вид'),
+      h('label', { class: 'lbl' }, 'Дизайн'), designCards,
+      h('div', { class: 'row wrap', style: { marginTop: '6px' } },
+        h('div', { class: 'grow' }, h('label', { class: 'lbl' }, 'Режим'), chips([['dark', '🌙 Тёмный'], ['light', '☀ Светлый'], ['auto', '🖥 Как в системе']], s.mode, (v) => set('mode', v)))),
+      h('label', { class: 'lbl' }, 'Цвет акцента'),
+      h('div', { class: 'row wrap' }, color, ...ACCENTS.map((c) => h('button', { class: 'swatch' + (c === s.accent ? ' on' : ''), style: { background: c }, title: c,
+        onclick: () => { s.accent = c; saveSettings(); applyLook(); redraw(); } }))),
+      h('div', { class: 'row wrap' },
+        h('div', { class: 'grow' }, field('Шрифт', select([['design', 'Как в дизайне'], ['system', 'Системный'], ['inter', 'Inter'], ['roboto', 'Roboto Flex'], ['serif', 'Source Serif'], ['mono', 'Моноширинный']], s.font, (v) => set('font', v)))),
+        h('div', { class: 'grow' }, range('Размер текста', 11, 20, 1, s.fontSize, (v) => v + ' px', (v) => set('fontSize', v)))),
+      range('Скругление углов', 0, 2.5, 0.05, s.round == null ? 1 : s.round, (v) => (s.round == null ? 'как в дизайне' : Math.round(v * 100) + '%'), (v) => set('round', v)),
+      h('div', { class: 'row', style: { marginTop: '4px' } }, h('button', { class: 'btn', onclick: () => set('round', null, true) }, 'Скругление как в дизайне')),
+      h('label', { class: 'lbl' }, 'Плотность'), chips([['compact', 'Плотно'], ['cozy', 'Обычно'], ['spacious', 'Просторно']], s.density, (v) => set('density', v)),
+      h('label', { class: 'lbl' }, 'Сообщения'), chips([['list', 'Список'], ['bubbles', 'Пузыри'], ['compact', 'Компактно (в строку)']], s.msgStyle, (v) => set('msgStyle', v)),
+      h('label', { class: 'lbl' }, 'Форма аватаров'), chips([['circle', '● Круг'], ['squircle', '▢ Скруглённый квадрат'], ['square', '■ Квадрат']], s.avatarShape, (v) => set('avatarShape', v)),
+      switchRow('Собирать подряд идущие сообщения в группу', s.groupMessages, (v) => { set('groupMessages', v); refreshMessages(); }),
+      switchRow('Показывать список участников', s.showMembers, (v) => { set('showMembers', v); renderRight(); }),
+      switchRow('24-часовое время', s.clock24, (v) => { set('clock24', v); refreshMessages(); }),
+      switchRow('Анимировать GIF только при наведении', s.gifHover, (v) => set('gifHover', v), 'Экономит видеокарту. По умолчанию анимации играют всегда.'),
+      h('label', { class: 'lbl' }, 'Фон приложения'),
+      urlField('Картинка или GIF (ссылка)', 'appBg', bgDraft, 'Лежит под всеми панелями. Только проверенные сайты.', () => { if (!bgDraft.appBg || C.safeUrl(bgDraft.appBg)) set('appBg', C.safeUrl(bgDraft.appBg) || ''); }),
+      h('div', { class: 'row wrap' },
+        h('div', { class: 'grow' }, range('Затемнение', 0, 90, 1, s.appBgDim, (v) => v + '%', (v) => set('appBgDim', v))),
+        h('div', { class: 'grow' }, range('Размытие', 0, 30, 1, s.appBgBlur, (v) => v + ' px', (v) => set('appBgBlur', v)))),
+      h('label', { class: 'lbl' }, 'Эффекты'),
+      switchRow('Свечение за курсором', s.cursorGlow, (v) => set('cursorGlow', v), 'Мягкий градиент плавно следует за мышью. В дизайнах без свечения не показывается.'),
+      range('Яркость свечения', 0, 100, 1, s.glowPower, (v) => v + '%', (v) => { s.glowPower = v; saveSettings(); }),
+      switchRow('Анимации интерфейса', s.animations, (v) => { set('animations', v); applyAnimations(); }, 'Плавные появления, наведения и пульсации.'),
+      h('label', { class: 'lbl' }, 'Свой CSS'),
+      h('div', { class: 'hint' }, 'Как Quick CSS в Vencord: пишите стили, они применяются сразу.'), quick,
       h('label', { class: 'lbl' }, 'CSS-темы'),
-      h('div', { class: 'hint' }, 'Как в Vencord: положите .css файл в папку тем, включите здесь. Тема может менять переменные цвета или любые стили.'),
+      h('div', { class: 'hint' }, 'Как в Vencord: положите .css файл в папку тем, включите здесь. Тема ложится поверх дизайна.'),
       h('div', { class: 'row', style: { margin: '10px 0' } },
         h('button', { class: 'btn', onclick: () => native.openFolder('themes') }, 'Открыть папку тем'),
         h('button', { class: 'btn', onclick: async () => { await C.themes.refresh(); redraw(); } }, 'Обновить')),
@@ -935,35 +1650,115 @@
         const on = C.store.get('themes.active', []).includes(t.id);
         return h('div', { class: 'list-item' }, h('div', { class: 'info' }, h('div', null, t.name), h('div', { class: 'sub' }, t.description || t.id)),
           switchRow('', on, (v) => C.themes.toggle(t.id, v)).firstChild);
-      }) : [h('div', { class: 'hint' }, 'Тем пока нет.')]));
+      }) : [h('div', { class: 'hint' }, 'Тем пока нет.')]),
+      h('div', { class: 'row', style: { marginTop: '20px' } }, h('button', { class: 'btn danger', onclick: () => {
+        if (!confirm('Вернуть вид по умолчанию?')) return;
+        for (const k of ['design', 'mode', 'accent', 'font', 'fontSize', 'round', 'density', 'msgStyle', 'avatarShape', 'appBg', 'appBgDim', 'appBgBlur', 'quickCss', 'gifHover', 'groupMessages']) s[k] = DEFAULTS[k];
+        saveSettings(); applyLook(); redraw();
+      } }, 'Сбросить вид')));
+  }
+
+  // ---------- Плагины ----------
+  function pluginSettingsForm(p) {
+    const st = C.plugins.settingsOf(p.info.id);
+    if (!st || !st.schema.length) return null;
+    return h('div', { class: 'plugin-settings' }, st.schema.map((f) => {
+      const v = st.values[f.key];
+      if (f.type === 'switch') return switchRow(f.label, !!v, (x) => st.set(f.key, x), f.hint);
+      if (f.type === 'select') return field(f.label, select(f.options, v, (x) => st.set(f.key, typeof f.default === 'number' ? Number(x) : x)), f.hint);
+      if (f.type === 'range') return h('div', null, range(f.label, f.min, f.max, f.step || 1, v, (x) => `${x}${f.unit || ''}`, (x) => st.set(f.key, x)), f.hint ? h('div', { class: 'hint' }, f.hint) : null);
+      if (f.type === 'color') { const c = h('input', { type: 'color', value: v }); c.addEventListener('input', () => st.set(f.key, c.value)); return field(f.label, c, f.hint); }
+      const i = h('input', { class: 'input', value: v == null ? '' : v, maxLength: f.max || 200, placeholder: f.placeholder || '' });
+      i.addEventListener('change', () => st.set(f.key, i.value));
+      return field(f.label, i, f.hint);
+    }));
+  }
+
+  // Перенос из BetterDiscord и Vencord: какие плагины у вас были включены и чем они стали здесь.
+  async function migrateDialog(redraw) {
+    let sources = [];
+    try { sources = await native.migrationScan(); } catch (e) { C.toast('Не удалось прочитать настройки'); return; }
+    const map = C.pluginOrigins || {};
+    const rows = [];
+    const toEnable = new Set();
+    for (const src of sources) {
+      for (const name of src.enabled) {
+        const t = map[name];
+        if (!t) continue;
+        if (t.plugin && !t.optional) toEnable.add(t.plugin);
+        rows.push({ src: src.app, name, t });
+      }
+    }
+    const seen = new Set();
+    const uniq = rows.filter((r) => { const k = r.name; if (seen.has(k)) return false; seen.add(k); return true; });
+    const icon = (t) => (t.optional ? '☑' : t.plugin ? '✅' : t.native ? '⭐' : '➖');
+    const pname = (id) => (C.plugins.plugins.find((p) => p.info.id === id) || { info: { name: id } }).info.name;
+    const label = (t) => (t.optional ? `есть плагин «${pname(t.plugin)}», но сам не включается: он прячет чужое оформление профилей` : t.plugin ? `плагин «${pname(t.plugin)}»` : t.native ? 'уже встроено: ' + t.native : t.none);
+    const themes = sources.flatMap((s) => s.themes || []);
+    const dlg = modal(h('div', { class: 'modal-body' }, h('h3', { style: { marginTop: 0 } }, 'Перенос плагинов'),
+      sources.length ? h('div', { class: 'hint' }, 'Найдено: ' + sources.map((s) => `${s.app} (${s.enabled.length} включено)`).join(', ') + '. Код чужих плагинов не копируется: их возможности сделаны заново под corsa-mess.')
+        : h('div', { class: 'hint bad' }, 'BetterDiscord и Vencord на этом компьютере не найдены.'),
+      h('div', { class: 'migrate-list' }, uniq.map((r) => h('div', { class: 'list-item' }, h('span', null, icon(r.t)),
+        h('div', { class: 'info' }, h('div', null, r.name, h('span', { class: 'hint' }, ' · ' + r.src)), h('div', { class: 'sub' }, label(r.t)))))),
+      themes.length ? h('div', { class: 'hint' }, `Темы Discord (${themes.join(', ')}) рассчитаны на устройство Discord и здесь не работают. Похожие темы уже есть: Translucence, Midnight, Galaxy.`) : null,
+      h('div', { class: 'row', style: { justifyContent: 'flex-end', marginTop: '14px' } },
+        h('button', { class: 'btn', onclick: () => dlg.close() }, 'Закрыть'),
+        toEnable.size ? h('button', { class: 'btn primary', onclick: async () => {
+          for (const id of toEnable) await C.plugins.toggle(id, true);
+          dlg.close(); redraw(); C.toast(`Включено плагинов: ${toEnable.size}`);
+        } }, `Включить ${toEnable.size}`) : null)), { wide: false });
   }
 
   function sectionPlugins(redraw) {
+    const q = (S.pluginQuery || '').toLowerCase();
+    const search = h('input', { class: 'input', placeholder: 'Поиск плагина', value: S.pluginQuery || '' });
+    search.addEventListener('input', () => { S.pluginQuery = search.value; const pos = search.selectionStart; redraw(); const ns = document.querySelector('.plugin-search .input'); if (ns) { ns.focus(); ns.selectionStart = ns.selectionEnd = pos; } });
+    const match = (p) => !q || [p.info.name, p.info.description, p.info.origin].join(' ').toLowerCase().includes(q);
+    const card = (p) => {
+      const sw = h('input', { type: 'checkbox', class: 'switch', checked: p.enabled });
+      sw.addEventListener('change', async () => { await C.plugins.toggle(p.info.id, sw.checked); redraw(); });
+      const open = S.pluginOpen === p.info.id;
+      const form = open && p.enabled ? pluginSettingsForm(p) : null;
+      const hasSettings = p.builtin && p.def && p.def.settings && p.def.settings.length;
+      return h('div', { class: 'plugin-card' + (p.enabled ? ' on' : '') },
+        h('div', { class: 'row' }, h('div', { class: 'info grow' }, h('div', { class: 'pname' }, p.info.name, p.info.version ? ' ' + p.info.version : ''),
+          h('div', { class: 'sub' }, p.info.description + (p.info.author ? ' — ' + p.info.author : '')),
+          p.info.origin ? h('div', { class: 'origin' }, 'по мотивам: ' + p.info.origin) : null,
+          p.error ? h('div', { class: 'err' }, 'Ошибка: ' + p.error) : null),
+        hasSettings ? h('button', { class: 'icon-btn' + (open ? ' on' : ''), title: 'Настройки плагина', disabled: !p.enabled, onclick: () => { S.pluginOpen = open ? null : p.info.id; redraw(); } }, '⚙') : null, sw),
+        form);
+    };
+    const builtins = C.plugins.plugins.filter((p) => p.builtin && match(p));
+    const groups = new Map();
+    for (const p of builtins) { const k = p.info.category || 'Разное'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
+    const own = C.plugins.plugins.filter((p) => !p.builtin && match(p));
     return h('div', null, h('h2', null, 'Плагины'),
-      h('div', { class: 'banner-warn' }, 'Плагин — это код с полным доступом к приложению. Включайте только те, которым доверяете.'),
+      h('div', { class: 'row wrap', style: { marginBottom: '12px' } },
+        h('button', { class: 'btn primary', onclick: () => migrateDialog(redraw) }, '⇪ Перенести из BetterDiscord и Vencord'),
+        h('div', { class: 'grow plugin-search' }, search)),
+      h('div', { class: 'hint' }, `Встроенных: ${C.plugins.plugins.filter((p) => p.builtin).length}, включено: ${C.plugins.plugins.filter((p) => p.enabled).length}. Встроенные — часть приложения, их код открыт в src/builtin.`),
+      ...[...groups].map(([name, list]) => h('div', null, h('label', { class: 'lbl' }, name), ...list.map(card))),
+      h('label', { class: 'lbl' }, 'Свои плагины'),
+      h('div', { class: 'banner-warn' }, 'Свой плагин — это код с полным доступом к приложению. Включайте только те, которым доверяете.'),
       h('div', { class: 'row', style: { marginBottom: '12px' } },
         h('button', { class: 'btn', onclick: () => native.openFolder('plugins') }, 'Открыть папку плагинов'),
         h('button', { class: 'btn', onclick: async () => { await C.plugins.refresh(); redraw(); } }, 'Обновить')),
-      ...(C.plugins.plugins.length ? C.plugins.plugins.map((p) => {
-        const sw = h('input', { type: 'checkbox', class: 'switch', checked: p.enabled });
-        sw.addEventListener('change', async () => { await C.plugins.toggle(p.info.id, sw.checked); redraw(); });
-        return h('div', { class: 'list-item' }, h('div', { class: 'info' }, h('div', null, `${p.info.name} ${p.info.version}`),
-          h('div', { class: 'sub' }, p.info.description + (p.info.author ? ' — ' + p.info.author : '')), p.error ? h('div', { class: 'err' }, 'Ошибка: ' + p.error) : null), sw);
-      }) : [h('div', { class: 'hint' }, 'Плагинов нет.')]));
+      ...(own.length ? own.map(card) : [h('div', { class: 'hint' }, 'Своих плагинов нет.')]));
   }
 
   function sectionActivity() {
     return h('div', null, h('h2', null, 'Игры и активность'),
+      switchRow('Показывать друзьям, во что я играю и что слушаю', S.shareActivity, (v) => C.plugins.appApi.setShareActivity(v)),
       h('div', { class: 'hint' }, 'Приложение слушает статусы Discord RPC на локальных каналах discord-ipc-N и сообщает друзьям, во что вы играете. Если настоящий Discord запущен, он занимает канал 0, и большинство игр говорят только с ним.'),
       h('div', { class: 'list-item', style: { marginTop: '14px' } }, h('div', { class: 'info' }, h('div', null, 'Сейчас'), h('div', { class: 'sub' }, S.activity ? activityLine(S.activity) : 'ничего не играет'))),
       switchRow('Узнавать название игры у Discord', S.settings.resolveNames, (v) => { S.settings.resolveNames = v; saveSettings(); native.presenceConfig({ resolveNames: v }); },
         'Игра присылает только числовой ID. Чтобы показать название, запрашивается публичная страница приложения на discord.com, при этом Discord видит ваш IP. Выключите — будет «Игра».'),
-      h('div', { class: 'hint' }, 'Игры без Rich Presence определяются по запущенному процессу. Свои игры можно добавить в файл games.json в папке данных приложения: {"game.exe": "Название"}.'));
+      h('div', { class: 'hint' }, 'Игры без Rich Presence определяются по запущенному процессу. Свои игры можно добавить в файл games.json в папке данных приложения: {"game.exe": "Название"}. Свою активность вручную и музыку включают плагины «Своя активность» и «Сейчас играет».'));
   }
 
   function sectionNotify() {
     return h('div', null, h('h2', null, 'Уведомления'),
-      h('div', { class: 'hint' }, 'Всплывающие окна в правом нижнем углу, как в Steam. Нажмите на окно, чтобы открыть профиль.'),
+      h('div', { class: 'hint' }, 'Всплывающие окна в правом нижнем углу, как в Steam. Нажмите на окно, чтобы открыть профиль. В статусе «Не беспокоить» окна не показываются.'),
       switchRow('Когда кто-то начинает играть', S.settings.notifyPlaying, (v) => { S.settings.notifyPlaying = v; saveSettings(); }),
       switchRow('Когда кто-то заходит в сеть или выключает невидимку', S.settings.notifyOnline, (v) => { S.settings.notifyOnline = v; saveSettings(); }),
       switchRow('Звук', S.settings.notifySound, (v) => { S.settings.notifySound = v; saveSettings(); }),
@@ -989,18 +1784,31 @@
       li('Весь обмен с комнатой шифруется (TLS). Подслушать переписку по пути нельзя.'),
       li('Сертификат сервера запоминается при первом входе. Если он изменится, соединение блокируется, и вы увидите предупреждение: так ловится подмена сервера.'),
       li('Пароль сети не отправляется: сервер проверяет ответ на случайный вызов. Повторить подслушанный ответ нельзя. После пяти ошибок адрес блокируется на минуту.'),
-      li('Картинки и ссылки грузятся только с проверенных сайтов, редиректы на чужие адреса блокируются, поэтому ваш IP не утекает.'),
+      li('Картинки и ссылки грузятся только с проверенных сайтов, редиректы на чужие адреса блокируются, поэтому ваш IP не утекает. Ссылки в сообщениях не открываются, а копируются.'),
       li('Владелец комнаты может исключить или заблокировать участника. Сервер ограничивает число соединений и скорость сообщений.'),
-      li('Плагин — это код. Если файлы плагина изменятся после включения, он автоматически отключится.'),
+      li('Поиск комнат в сети отвечает только компьютерам из той же сети, из интернета он не виден.'),
+      li('Свой плагин — это код. Если файлы плагина изменятся после включения, он автоматически отключится.'),
       h('label', { class: 'lbl' }, 'Отпечаток вашего сервера'), own,
       h('div', { class: 'hint' }, 'Сверьте его с другом другим способом (в личной беседе), если хотите быть уверены, что подключаетесь именно к вам.'),
       h('label', { class: 'lbl' }, 'Запомненные серверы'), pinsBox);
   }
 
   function sectionNetwork() {
-    const stun = h('input', { class: 'input', value: S.settings.stun, placeholder: 'stun:stun.l.google.com:19302' });
-    stun.addEventListener('change', () => { S.settings.stun = stun.value.trim(); saveSettings(); });
+    const s = S.settings;
+    const stun = h('input', { class: 'input', value: s.stun, placeholder: 'stun:stun.l.google.com:19302' });
+    stun.addEventListener('change', () => { s.stun = stun.value.trim(); saveSettings(); });
+    const ips = h('div', { class: 'hint' }, '…');
+    native.lanIps().then((list) => ips.replaceChildren(...list.map((i) => h('div', null, `${i.name}: ${i.address} — ${{ lan: 'локальная сеть', vpn: 'VPN-сеть', virtual: 'виртуальный адаптер (друзья по нему не подключатся)', other: 'сеть' }[i.kind]}`)))).catch(() => { ips.textContent = 'недоступно'; });
     return h('div', null, h('h2', null, 'Сеть'),
+      h('label', { class: 'lbl' }, 'Локальная сеть'),
+      switchRow('Искать комнаты в моей сети', s.lanScan, (v) => { s.lanScan = v; saveSettings(); }, 'Комнаты друзей из той же сети (и из Radmin, ZeroTier, Hamachi) появляются на главной, код вводить не нужно.'),
+      switchRow('Показывать мою комнату в сети', s.lanVisible, (v) => { s.lanVisible = v; saveSettings(); }, 'Действует при следующем запуске сервера. Видно название, замок и число участников.'),
+      switchRow('Максимум качества в локальной сети', s.lanBoost, (v) => { s.lanBoost = v; saveSettings(); }, 'Если зритель подключён напрямую по локальной сети, показ экрана идёт с повышенным битрейтом.'),
+      range('Битрейт экрана в локальной сети', 10, 80, 5, s.lanScreenMbps, (v) => v + ' Мбит/с', (v) => { s.lanScreenMbps = v; saveSettings(); }),
+      switchRow('Переподключаться при обрыве', s.autoReconnect, (v) => { s.autoReconnect = v; saveSettings(); }, 'Если Wi-Fi моргнул, приложение само вернётся в тот же канал и в голос.'),
+      switchRow('«Не на месте» через 10 минут без действий', s.autoIdle, (v) => { s.autoIdle = v; saveSettings(); }),
+      h('label', { class: 'lbl' }, 'Сети этого компьютера'), ips,
+      h('label', { class: 'lbl' }, 'Интернет'),
       field('STUN-сервер для голоса через интернет', stun, 'Пусто — голос работает в локальной сети и по общим сетям (VPN). Адрес STUN помогает соединиться через роутеры, но этот сервис увидит ваш IP.'));
   }
 
@@ -1010,7 +1818,7 @@
       try { store.load(JSON.parse(await file.files[0].text())); C.toast('Готово. Перезапустите приложение.'); } catch (e) { C.toast('Не удалось прочитать файл'); }
     });
     return h('div', null, h('h2', null, 'Резервная копия'),
-      h('div', { class: 'hint' }, 'Профиль, настройки, стикеры и список комнат хранятся только на этом компьютере. Сервера-облака нет, поэтому копию делаете вы.'),
+      h('div', { class: 'hint' }, 'Профиль, настройки, стикеры, плагины и список комнат хранятся только на этом компьютере. Сервера-облака нет, поэтому копию делаете вы.'),
       h('div', { class: 'row', style: { marginTop: '14px' } },
         h('button', { class: 'btn primary', onclick: () => {
           const data = store.dump();
@@ -1022,7 +1830,7 @@
   }
 
   // Настройки комнаты: только для владельца (того, кто запустил сервер).
-  function sectionRoom() {
+  function sectionRoom(redraw) {
     const room = S.conn.room;
     const draft = { banner: room.banner || '' };
     const name = h('input', { class: 'input', value: room.name, maxLength: 40 });
@@ -1030,19 +1838,43 @@
     const update = () => {
       const safe = C.safeUrl(draft.banner);
       preview.className = 'side-title room-header' + (safe ? ' has-banner' : '');
-      preview.style.backgroundImage = safe && !/\.(mp4|webm)(\?|$)/i.test(safe) ? `url("${safe}")` : '';
+      preview.style.backgroundImage = safe && !isVideoUrl(safe) ? `url("${safe}")` : '';
       preview.replaceChildren(h('span', { class: 'room-name' }, name.value.trim() || room.name));
     };
     name.addEventListener('input', update);
     update();
+    const send = (op) => { S.conn.send({ t: 'channel-set', ...op }); setTimeout(redraw, 200); };
+    const chRow = (c) => {
+      const nm = h('input', { class: 'input', value: c.name, maxLength: 32 });
+      const cat = h('input', { class: 'input', value: c.category || '', maxLength: 32, placeholder: 'Категория' });
+      const topic = h('input', { class: 'input', value: c.topic || '', maxLength: 120, placeholder: 'Тема канала (видна в шапке)' });
+      nm.addEventListener('change', () => send({ op: 'edit', id: c.id, name: nm.value }));
+      cat.addEventListener('change', () => send({ op: 'edit', id: c.id, category: cat.value }));
+      topic.addEventListener('change', () => send({ op: 'edit', id: c.id, topic: topic.value }));
+      const nsfw = h('input', { type: 'checkbox', class: 'switch', checked: !!c.nsfw, title: '18+' });
+      nsfw.addEventListener('change', () => send({ op: 'edit', id: c.id, nsfw: nsfw.checked }));
+      return h('div', { class: 'ch-row' }, h('span', { class: 'ch-ic' }, c.type === 'voice' ? '🔊' : '#'), h('div', { class: 'grow ch-fields' }, h('div', { class: 'row' }, nm, cat), topic),
+        c.type === 'text' ? h('label', { class: 'ch-nsfw', title: 'Канал 18+' }, '18+', nsfw) : null,
+        h('button', { class: 'icon-btn', title: 'Выше', onclick: () => send({ op: 'move', id: c.id, dir: -1 }) }, '↑'),
+        h('button', { class: 'icon-btn', title: 'Ниже', onclick: () => send({ op: 'move', id: c.id, dir: 1 }) }, '↓'),
+        h('button', { class: 'icon-btn', title: 'Удалить', onclick: () => { if (confirm(`Удалить канал «${c.name}»${c.type === 'text' ? ' вместе с историей' : ''}?`)) send({ op: 'delete', id: c.id }); } }, '🗑'));
+    };
+    const newName = h('input', { class: 'input', placeholder: 'Название канала', maxLength: 32 });
+    const newCat = h('input', { class: 'input', placeholder: 'Категория', maxLength: 32 });
+    const newType = select([['text', '# Текстовый'], ['voice', '🔊 Голосовой']], 'text', () => {});
     return h('div', null, h('h2', null, 'Комната'),
-      h('div', { class: 'hint' }, 'Название и баннер видят все участники. Менять их можете только вы.'),
+      h('div', { class: 'hint' }, 'Название, баннер и каналы видят все участники. Менять их можете только вы.'),
       field('Название', name), urlField('Баннер (ссылка)', 'banner', draft, 'Картинка над списком каналов. Лучше широкая, например 600×240.', update),
       h('label', { class: 'lbl' }, 'Предпросмотр'), h('div', { style: { width: '262px', borderRadius: '12px', overflow: 'hidden' } }, preview),
-      h('div', { class: 'row', style: { marginTop: '20px' } }, h('button', { class: 'btn primary', onclick: () => {
+      h('div', { class: 'row', style: { marginTop: '14px' } }, h('button', { class: 'btn primary', onclick: () => {
         S.conn.send({ t: 'room-set', name: name.value.trim(), banner: C.safeUrl(draft.banner) || null });
         C.toast('Комната обновлена');
-      } }, 'Сохранить')));
+      } }, 'Сохранить название и баннер')),
+      h('label', { class: 'lbl' }, 'Каналы'),
+      h('div', { class: 'hint' }, 'Изменения применяются сразу, как только вы уходите с поля. Каналы 18+ помечаются и могут размываться плагинами.'),
+      h('div', { class: 'ch-list' }, room.channels.map(chRow)),
+      h('div', { class: 'row', style: { marginTop: '10px' } }, newType, newName, newCat,
+        h('button', { class: 'btn primary', onclick: () => { if (!newName.value.trim()) return; send({ op: 'add', type: newType.value, name: newName.value, category: newCat.value || undefined }); } }, 'Добавить')));
   }
 
   // Управление библиотекой: категории, стикеры, эмодзи, экспорт и импорт JSON.
@@ -1123,29 +1955,47 @@
   }
 
   function openSettings(start = 'profile') {
-    const sections = [...(S.conn && S.conn.owner ? [['room', 'Комната', sectionRoom]] : []), ['profile', 'Мой профиль', sectionProfile], ['voice', 'Голос и видео', sectionVoice], ['stream', 'Стриминг', sectionStream],
-      ['look', 'Внешний вид', sectionLook], ['stickers', 'Стикеры и эмодзи', sectionStickers], ['plugins', 'Плагины', sectionPlugins], ['activity', 'Игры и активность', sectionActivity], ['notify', 'Уведомления', sectionNotify], ['security', 'Безопасность', sectionSecurity],
-      ['network', 'Сеть', sectionNetwork], ['backup', 'Резервная копия', sectionBackup]];
-    let current = start;
+    const sections = [...(S.conn && S.conn.owner ? [['room', '🏠 Комната', sectionRoom]] : []), ['profile', '👤 Мой профиль', sectionProfile], ['look', '🎨 Внешний вид', sectionLook],
+      ['voice', '🎙 Голос и видео', sectionVoice], ['stream', '🖥 Стриминг', sectionStream], ['stickers', '😀 Стикеры и эмодзи', sectionStickers], ['plugins', '🧩 Плагины', sectionPlugins],
+      ['activity', '🎮 Игры и активность', sectionActivity], ['notify', '🔔 Уведомления', sectionNotify], ['network', '📡 Сеть', sectionNetwork], ['security', '🔒 Безопасность', sectionSecurity],
+      ['backup', '💾 Резервная копия', sectionBackup]];
+    let current = sections.find((s) => s[0] === start) ? start : 'profile';
     const nav = h('div', { class: 'settings-nav' });
     const body = h('div', { class: 'settings-body' });
     const draw = () => {
       nav.replaceChildren(h('div', { class: 'group-label' }, 'Настройки'), ...sections.map(([id, label]) =>
-        h('div', { class: 'nav' + (id === current ? ' on' : ''), onclick: () => { current = id; draw(); } }, label)),
-      h('div', { style: { padding: '14px 12px' } }, h('button', { class: 'btn', onclick: () => { dlg.close(); disconnect(); } }, S.conn ? 'Отключиться от комнаты' : 'Закрыть')));
+        h('div', { class: 'nav' + (id === current ? ' on' : ''), onclick: () => { current = id; draw(); body.scrollTop = 0; } }, label)),
+      h('div', { style: { padding: '14px 12px' } }, h('button', { class: 'btn', onclick: () => { dlg.close(); if (S.conn) disconnect(); } }, S.conn ? 'Отключиться от комнаты' : 'Закрыть')));
       const fn = sections.find((s) => s[0] === current)[2];
+      const top = body.scrollTop;
       body.replaceChildren(fn(draw));
+      body.scrollTop = top;
     };
-    const dlg = modal(h('div', { style: { display: 'flex', width: '100%', minHeight: 0 } }, nav, body), { wide: true });
+    const dlg = modal(h('div', { style: { display: 'flex', width: '100%', minHeight: 0 } }, nav, body), { wide: true, onClose: () => { S.profileDraft = null; } });
     draw();
   }
 
   const applyAnimations = () => document.body.classList.toggle('no-anim', !S.settings.animations);
 
+  // «Не на месте»: через 10 минут без мыши и клавиатуры, обратно — при первом действии.
+  function startIdleWatch() {
+    let lastInput = Date.now();
+    const wake = () => {
+      lastInput = Date.now();
+      if (S.idle) { S.idle = false; if (S.conn) S.conn.send({ t: 'status', status: wireStatus() }); renderUserbar(); }
+    };
+    for (const ev of ['mousemove', 'keydown', 'mousedown', 'wheel']) window.addEventListener(ev, wake, { passive: true });
+    setInterval(() => {
+      if (!S.settings.autoIdle || S.status !== 'online' || S.idle) return;
+      if (Date.now() - lastInput > 10 * 60000) { S.idle = true; if (S.conn) S.conn.send({ t: 'status', status: wireStatus() }); renderUserbar(); }
+    }, 30000);
+  }
+
   // ---------- Старт ----------
   async function start() {
     C.stickerLib.load();
-    C.applyAccent(S.settings.accent);
+    applyLook();
+    matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (S.settings.mode === 'auto') applyLook(); });
     C.startCursorGlow(() => S.settings.cursorGlow, () => S.settings.glowPower);
     applyAnimations();
     const app = document.getElementById('app');
@@ -1158,12 +2008,8 @@
     native.presenceConfig({ resolveNames: S.settings.resolveNames });
     await C.themes.refresh();
     await C.plugins.refresh();
-    const pushActivity = (a) => {
-      S.activity = a;
-      renderUserbar();
-      if (S.conn) S.conn.send({ t: 'activity', activity: a ? { name: a.name, details: a.details, state: a.state, startedAt: a.startedAt } : null });
-    };
-    native.onPresence(pushActivity);
+    renderAll();
+    native.onPresence((a) => { S.detected = a; updateActivity(); });
     native.onTls((ev) => {
       if (ev.kind === 'mismatch') {
         modal(h('div', { class: 'modal-body' }, h('h3', { style: { marginTop: 0, color: 'var(--warn)' } }, '⚠ Сертификат сервера изменился'),
@@ -1175,8 +2021,9 @@
         C.toast(`Сервер ${ev.host} запомнен. Отпечаток: ${ev.fingerprint.slice(0, 23)}…`);
       }
     });
-    S.activity = await native.presenceNow();
-    renderUserbar();
+    S.detected = await native.presenceNow();
+    updateActivity();
+    startIdleWatch();
   }
 
   start();

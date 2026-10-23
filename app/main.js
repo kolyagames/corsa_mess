@@ -8,7 +8,13 @@ const { ensureCert } = require('./server/cert');
 const Code = require('./shared/code');
 const Allowlist = require('./shared/allowlist');
 const { startPresenceBridge } = require('./presence');
+const { startMediaWatch } = require('./media');
 const upnp = require('./upnp');
+const lan = require('./server/lan');
+
+// В локальной сети голос соединяется напрямую по адресам компьютеров. Chromium по умолчанию прячет их
+// за случайными именами .local, а в Windows такие имена часто не находятся: голос тогда не соединяется.
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 // Отладочный порт даёт любому процессу на компьютере полный контроль над приложением, поэтому он запрещён.
 // Исключение — только скрытый тестовый запуск (CORSA_TEST), он работает с отдельным профилем.
@@ -36,6 +42,8 @@ let hostHasPassword = false;
 let hostCert = null;
 let mapping = null;
 let renewTimer = null;
+let lanResponder = null;
+let media = null;
 let pins = {}; // закреплённые отпечатки серверов: адрес -> sha256
 
 // Все запросы из интерфейса принимаются только от нашей страницы в нашем окне.
@@ -140,16 +148,51 @@ function listThemes() {
   return out;
 }
 
+// Сети компьютера по порядку: сначала настоящая домашняя сеть (Wi-Fi, Ethernet), потом общие VPN-сети,
+// в конце виртуальные адаптеры (VirtualBox, Hyper-V, WSL): по их адресам друзья не подключатся.
+const VIRTUAL_NET = /virtualbox|vbox|vmware|vethernet|hyper-v|wsl|docker|npcap|bluetooth|loopback/i;
+const VPN_NET = /radmin|zerotier|hamachi|tailscale|wireguard|openvpn|tap-|wintun|nordlynx|proton|outline/i;
 function lanIps() {
   const res = [];
   for (const [name, list] of Object.entries(os.networkInterfaces())) {
     for (const i of list || []) {
-      if (i.family !== 'IPv4' || i.internal) continue;
+      if (i.family !== 'IPv4' || i.internal || /^169\.254\./.test(i.address)) continue;
       const priv = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(i.address);
-      res.push({ name, address: i.address, priv });
+      const kind = VIRTUAL_NET.test(name) || /^192\.168\.56\./.test(i.address) ? 'virtual' : VPN_NET.test(name) || /^(25|26)\./.test(i.address) || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(i.address) ? 'vpn' : priv ? 'lan' : 'other';
+      res.push({ name, address: i.address, priv, kind });
     }
   }
-  return res.sort((a, b) => Number(b.priv) - Number(a.priv));
+  const rank = { lan: 0, vpn: 1, other: 2, virtual: 3 };
+  return res.sort((a, b) => rank[a.kind] - rank[b.kind]);
+}
+
+// Какие плагины включены в BetterDiscord и Vencord (Vesktop, Equicord): только имена, остальные настройки не читаются.
+function migrationScan() {
+  const out = [];
+  const tryJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return null; } };
+  const appData = app.getPath('appData');
+  const bdDirs = [path.join(appData, 'BetterDiscord')];
+  // Переносная сборка BetterDiscord может лежать в папке программы в домашнем каталоге (например, «Better Vesktop»).
+  try {
+    for (const d of fs.readdirSync(os.homedir(), { withFileTypes: true })) if (d.isDirectory()) bdDirs.push(path.join(os.homedir(), d.name, 'BetterDiscord'));
+  } catch (e) { /* ignore */ }
+  for (const dir of bdDirs) {
+    for (const channel of ['stable', 'canary', 'ptb']) {
+      const j = tryJson(path.join(dir, 'data', channel, 'plugins.json'));
+      if (!j || typeof j !== 'object') continue;
+      const enabled = Object.entries(j).filter(([, v]) => v === true).map(([k]) => String(k).slice(0, 64));
+      const themesDirBd = path.join(dir, 'themes');
+      const themes = fs.existsSync(themesDirBd) ? fs.readdirSync(themesDirBd).filter((f) => f.endsWith('.theme.css')).map((f) => f.replace(/\.theme\.css$/, '')) : [];
+      out.push({ app: 'BetterDiscord', where: dir, enabled, themes });
+    }
+  }
+  for (const [label, dir] of [['Vesktop', 'vesktop'], ['Vencord', 'Vencord'], ['Equicord', 'Equicord'], ['Equibop', 'equibop']]) {
+    const j = tryJson(path.join(appData, dir, 'settings', 'settings.json'));
+    if (!j || !j.plugins || typeof j.plugins !== 'object') continue;
+    const enabled = Object.entries(j.plugins).filter(([, v]) => v && v.enabled === true).map(([k]) => String(k).slice(0, 64));
+    out.push({ app: label, where: path.join(appData, dir), enabled, themes: [] });
+  }
+  return out;
 }
 
 function createWindow() {
@@ -249,17 +292,54 @@ function setupIpc() {
     roomServer = srv;
     hostPort = actual;
     hostHasPassword = !!password;
-    const ips = lanIps();
+    // Комната видна в списке «В вашей сети» у тех, кто в той же сети. Отключается в настройках.
+    if (!opts || opts.lanVisible !== false) {
+      const id = crypto.randomBytes(6).toString('hex');
+      lanResponder = lan.createResponder({ getInfo: () => (roomServer ? { ...roomServer.info(), port: hostPort, fp: hostCert.fingerprint.slice(0, 23), id } : null) });
+      await lanResponder.ready;
+    }
+    const ips = lanIps().filter((i) => i.kind !== 'virtual');
     const best = ips[0] && ips[0].address;
     return {
       port: actual, ips, code: best ? Code.encode(best, actual) : null, local: Code.encode('127.0.0.1', actual),
-      fingerprint: hostCert.fingerprint, protected: hostHasPassword,
+      codes: ips.map((i) => ({ name: i.name, kind: i.kind, address: i.address, code: Code.encode(i.address, actual) })),
+      fingerprint: hostCert.fingerprint, protected: hostHasPassword, lanVisible: !!lanResponder,
     };
   });
   ipcMain.handle('host:stop', async () => {
     await closeMapping();
+    if (lanResponder) { lanResponder.close(); lanResponder = null; }
     if (roomServer) { await roomServer.stop(); roomServer = null; }
     hostPort = 0;
+    return true;
+  });
+  ipcMain.handle('lan:scan', async () => {
+    const found = await lan.scan({ timeoutMs: 700 });
+    const ips = lanIps();
+    const own = new Set(ips.map((i) => i.address));
+    // Одна комната отвечает через каждую общую сеть. Оставляем один адрес: сначала настоящую локальную сеть, потом VPN.
+    const rank = { lan: 0, vpn: 1, other: 2, virtual: 3 };
+    const kindOf = (ip) => { const n = lan.netFor(ip); const i = n && ips.find((x) => x.address === n.address); return i ? i.kind : 'other'; };
+    const best = new Map();
+    for (const r of found) {
+      const key = r.id || `${r.host}:${r.port}`;
+      const k = kindOf(r.host);
+      const cur = best.get(key);
+      if (!cur || rank[k] < rank[cur.kind]) best.set(key, { ...r, kind: k });
+    }
+    return [...best.values()].map((r) => ({ ...r, mine: own.has(r.host) && r.port === hostPort, code: Code.encode(r.host, r.port) }));
+  });
+  ipcMain.handle('media:watch', (e, on) => {
+    if (on && !media) media = startMediaWatch({ onChange: (t) => tellUi('media:change', t) });
+    if (!on && media) { media.stop(); media = null; tellUi('media:change', null); }
+    return media ? media.current() : null;
+  });
+  ipcMain.handle('media:cmd', (e, cmd) => { if (media) media.command(String(cmd)); return true; });
+  ipcMain.handle('migrate:scan', () => migrationScan());
+  // Цвет кнопок окна под дизайн (светлый или тёмный).
+  ipcMain.handle('window:titlebar', (e, c) => {
+    const ok = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+    if (win && c && ok(c.color) && ok(c.symbolColor) && win.setTitleBarOverlay) win.setTitleBarOverlay({ color: c.color, symbolColor: c.symbolColor, height: 32 });
     return true;
   });
   // Открыть доступ из интернета: порт на роутере открывается только по нажатию кнопки и только при заданном пароле.
@@ -351,6 +431,8 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', async () => {
   if (bridge) bridge.stop();
+  if (media) media.stop();
+  if (lanResponder) lanResponder.close();
   await closeMapping();
   if (roomServer) await roomServer.stop();
   app.quit();

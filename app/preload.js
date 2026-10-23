@@ -20,6 +20,16 @@ contextBridge.exposeInMainWorld('corsaNative', {
     ipcRenderer.on('tls:event', fn);
     return () => ipcRenderer.removeListener('tls:event', fn);
   },
+  lanScan: () => ipcRenderer.invoke('lan:scan'),
+  mediaWatch: (on) => ipcRenderer.invoke('media:watch', !!on),
+  mediaCommand: (cmd) => ipcRenderer.invoke('media:cmd', cmd),
+  onMedia: (cb) => {
+    const fn = (e, t) => cb(t);
+    ipcRenderer.on('media:change', fn);
+    return () => ipcRenderer.removeListener('media:change', fn);
+  },
+  migrationScan: () => ipcRenderer.invoke('migrate:scan'),
+  setTitleBar: (c) => ipcRenderer.invoke('window:titlebar', c),
   exportFiles: (files) => ipcRenderer.invoke('files:export', files),
   importFiles: () => ipcRenderer.invoke('files:import'),
   presenceNow: () => ipcRenderer.invoke('presence:detect'),

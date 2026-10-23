@@ -1,0 +1,175 @@
+/* Дизайны интерфейса. Выбираются в Настройки → Внешний вид: body[data-design] и body[data-mode].
+   Свои названия и свои цвета. Чужих логотипов, иконок и фирменных шрифтов нет: шрифты свободные (SIL OFL, см. fonts/LICENSE-fonts.txt). */
+
+@font-face { font-family: 'Inter'; src: url('fonts/inter-lat.woff2') format('woff2'); font-weight: 100 900; font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Inter'; src: url('fonts/inter-cyr.woff2') format('woff2'); font-weight: 100 900; font-display: swap; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Roboto Flex'; src: url('fonts/robotoflex-lat.woff2') format('woff2'); font-weight: 100 1000; font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Roboto Flex'; src: url('fonts/robotoflex-cyr.woff2') format('woff2'); font-weight: 100 1000; font-display: swap; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Source Serif 4'; src: url('fonts/sourceserif-lat.woff2') format('woff2'); font-weight: 200 900; font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Source Serif 4'; src: url('fonts/sourceserif-cyr.woff2') format('woff2'); font-weight: 200 900; font-display: swap; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+
+/* ---------- Светлый режим (общая основа) ---------- */
+body[data-mode="light"] {
+  --bg-0: #e9e7ec; --bg-1: #f4f3f6; --bg-2: #fbfafc; --panel: #eeedf1; --panel-hi: #e2e0e7;
+  --line: rgba(0, 0, 0, .08); --text: #1d1b20; --muted: rgba(29, 27, 32, .58);
+  --hover: rgba(0, 0, 0, .035); --fill: rgba(0, 0, 0, .05); --fill-hi: rgba(0, 0, 0, .09); --shadow-c: rgba(30, 20, 40, .22);
+  --accent-dim: color-mix(in srgb, var(--accent) 15%, #fff); --glow: color-mix(in srgb, var(--accent) 35%, transparent); --glow-soft: rgba(0, 0, 0, .08);
+  --body-bg: var(--bg-1); color-scheme: light;
+}
+body[data-mode="light"] #titlebar { background: var(--bg-0); color: var(--muted); }
+body[data-mode="light"] .tile .label { background: rgba(255, 255, 255, .85); color: var(--text); }
+body[data-mode="light"] .dot { border-color: var(--bg-2); }
+body[data-mode="light"]::after { mix-blend-mode: multiply; opacity: calc(var(--glow-power, .5) * .5); }
+body[data-mode="light"] .avatar { color: #fff; }
+
+/* ---------- «Глина»: тёплая бумага, спокойные цвета, засечки в заголовках и сообщениях ---------- */
+body[data-design="clay"] {
+  --bg-0: #1c1a17; --bg-1: #23211d; --bg-2: #2a2723; --panel: #34302b; --panel-hi: #3f3a34;
+  --line: rgba(255, 244, 228, .08); --text: #ece6dc; --muted: rgba(236, 230, 220, .58);
+  --glow: transparent; --glow-soft: rgba(255, 244, 228, .07); --accent-dim: color-mix(in srgb, var(--accent) 20%, #2a2723);
+  --font: 'Inter', 'Segoe UI', sans-serif; --font-head: 'Source Serif 4', Georgia, serif; --font-msg: 'Source Serif 4', Georgia, serif;
+  --body-bg: var(--bg-1); --round: 1.15;
+}
+body[data-design="clay"][data-mode="light"] {
+  --bg-0: #ebe6db; --bg-1: #f4f1ea; --bg-2: #faf8f3; --panel: #efebe2; --panel-hi: #e5dfd3;
+  --line: rgba(60, 45, 30, .1); --text: #2b2722; --muted: rgba(43, 39, 34, .6); --glow-soft: rgba(60, 45, 30, .09);
+  --accent-dim: color-mix(in srgb, var(--accent) 14%, #faf8f3); --shadow-c: rgba(70, 50, 30, .18);
+}
+body[data-design="clay"]::after { display: none; }
+body[data-design="clay"] .rail-btn, body[data-design="clay"] .btn.primary, body[data-design="clay"] .nav .badge,
+body[data-design="clay"] .code-box { box-shadow: none; text-shadow: none; }
+body[data-design="clay"] .btn.primary { background: var(--accent); }
+body[data-design="clay"] .btn.primary:hover { filter: brightness(1.06); box-shadow: none; }
+body[data-design="clay"] .rail-btn.logo { background: var(--panel-hi); }
+body[data-design="clay"] .nav.on { background: var(--panel-hi); box-shadow: none; color: var(--text); }
+body[data-design="clay"] .card { box-shadow: 0 0 0 1px var(--line); background: var(--bg-2); }
+body[data-design="clay"] .card:hover { box-shadow: 0 0 0 1px var(--line), 0 10px 30px var(--shadow-c); }
+body[data-design="clay"] .main-head .title, body[data-design="clay"] .settings-body h2 { font-family: var(--font-head); font-weight: 600; font-size: 1.15em; }
+body[data-design="clay"] .settings-body h2 { font-size: 1.7em; font-weight: 500; }
+body[data-design="clay"] .composer .field { box-shadow: 0 0 0 1px var(--line), 0 2px 10px var(--shadow-c); border-radius: var(--r-lg); }
+body[data-design="clay"] .composer .field:focus { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent), 0 2px 14px var(--shadow-c); }
+body[data-design="clay"] .msg .text { font-size: 1.04em; line-height: 1.55; }
+body[data-design="clay"] .input { box-shadow: inset 0 0 0 1px var(--line); }
+body[data-design="clay"] .switch:checked { background: var(--accent); box-shadow: none; }
+body[data-design="clay"] .switch:checked:after { background: #fff; box-shadow: none; }
+body[data-design="clay"] .chip.on { background: var(--accent-dim); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+body[data-design="clay"] .avatar { box-shadow: none; }
+body[data-design="clay"] .avatar.lg { box-shadow: 0 0 0 1px var(--line); }
+body[data-design="clay"] .code-box { color: var(--accent); background: var(--panel); }
+body[data-design="clay"] .side, body[data-design="clay"] .right { background: var(--bg-0); }
+body[data-design="clay"] .side-title, body[data-design="clay"] .main-head { border-color: var(--line); }
+
+/* ---------- «Экспрессив»: крупные формы, тональные цвета от акцента, пружинные анимации ---------- */
+body[data-design="expressive"] {
+  --bg-0: color-mix(in srgb, var(--accent) 6%, #111014); --bg-1: color-mix(in srgb, var(--accent) 8%, #16141a);
+  --bg-2: color-mix(in srgb, var(--accent) 10%, #1c1a21); --panel: color-mix(in srgb, var(--accent) 14%, #232028);
+  --panel-hi: color-mix(in srgb, var(--accent) 22%, #2b2831); --line: rgba(255, 255, 255, .07);
+  --text: #ece6f0; --muted: rgba(236, 230, 240, .62); --glow: transparent; --glow-soft: transparent;
+  --accent-dim: color-mix(in srgb, var(--accent) 34%, #1c1a21);
+  --font: 'Roboto Flex', 'Segoe UI', sans-serif; --font-head: 'Roboto Flex', 'Segoe UI', sans-serif;
+  --body-bg: var(--bg-1); --round: 1.8; --spring: cubic-bezier(.34, 1.56, .64, 1);
+}
+body[data-design="expressive"][data-mode="light"] {
+  --bg-0: color-mix(in srgb, var(--accent) 10%, #f3eef6); --bg-1: color-mix(in srgb, var(--accent) 5%, #fdf8fd);
+  --bg-2: color-mix(in srgb, var(--accent) 3%, #fffbff); --panel: color-mix(in srgb, var(--accent) 9%, #f7f2fa);
+  --panel-hi: color-mix(in srgb, var(--accent) 16%, #ece6f0); --line: rgba(0, 0, 0, .07);
+  --text: #1d1b20; --muted: rgba(29, 27, 32, .62); --accent-dim: color-mix(in srgb, var(--accent) 22%, #fffbff);
+}
+body[data-design="expressive"]::after { display: none; }
+body[data-design="expressive"] h2, body[data-design="expressive"] .main-head .title { font-weight: 750; letter-spacing: -.01em; }
+body[data-design="expressive"] .settings-body h2 { font-size: 2em; font-weight: 800; }
+body[data-design="expressive"] .btn { border-radius: 999px; padding: 10px 20px; font-weight: 600; box-shadow: none; transition: border-radius .35s var(--spring), transform .35s var(--spring), background .2s; }
+body[data-design="expressive"] .btn:hover { border-radius: 14px; background: var(--panel-hi); }
+body[data-design="expressive"] .btn:active { transform: scale(.94); border-radius: 10px; }
+body[data-design="expressive"] .btn.primary { background: var(--accent); color: #fff; }
+body[data-design="expressive"] .btn.primary:hover { background: var(--accent); filter: brightness(1.08); }
+body[data-design="expressive"] .rail-btn { border-radius: 50%; box-shadow: none; background: var(--panel-hi); transition: border-radius .45s var(--spring), transform .45s var(--spring); }
+body[data-design="expressive"] .rail-btn:hover { border-radius: 30% 50% 30% 50%; transform: rotate(-8deg) scale(1.06); }
+body[data-design="expressive"] .rail-btn.on { border-radius: 16px; background: var(--accent); color: #fff; }
+body[data-design="expressive"] .rail-btn.logo { background: var(--accent-dim); }
+body[data-design="expressive"] .nav { border-radius: 999px; padding: 10px 16px; }
+body[data-design="expressive"] .nav.on { background: var(--accent-dim); box-shadow: none; font-weight: 650; }
+body[data-design="expressive"] .nav:hover { transform: none; }
+body[data-design="expressive"] .nav .badge { box-shadow: none; }
+body[data-design="expressive"] .card { border-radius: 28px; background: var(--panel); box-shadow: none; }
+body[data-design="expressive"] .cards .card:hover { transform: translateY(-4px) scale(1.01); box-shadow: 0 16px 40px var(--shadow-c); }
+body[data-design="expressive"] .input { border-radius: 16px; background: var(--panel-hi); box-shadow: none; padding: 12px 16px; }
+body[data-design="expressive"] .input:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+body[data-design="expressive"] .composer .field { border-radius: 28px; background: var(--panel-hi); box-shadow: none; padding: 14px 20px; }
+body[data-design="expressive"] .composer .field:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+body[data-design="expressive"] .chip { border-radius: 10px; background: transparent; box-shadow: inset 0 0 0 1px var(--line); transition: border-radius .3s var(--spring), background .2s; }
+body[data-design="expressive"] .chip.on { background: var(--accent-dim); box-shadow: none; border-radius: 18px; }
+body[data-design="expressive"] .switch { width: 52px; height: 32px; border-radius: 16px; background: var(--panel-hi); box-shadow: inset 0 0 0 2px var(--muted); }
+body[data-design="expressive"] .switch:after { width: 16px; height: 16px; top: 8px; left: 8px; transition: transform .35s var(--spring), width .25s, height .25s, top .25s; }
+body[data-design="expressive"] .switch:checked { background: var(--accent); box-shadow: none; }
+body[data-design="expressive"] .switch:checked:after { width: 24px; height: 24px; top: 4px; transform: translateX(16px); background: #fff; box-shadow: none; }
+body[data-design="expressive"] .avatar { box-shadow: none; }
+body[data-design="expressive"] .code-box { color: var(--accent); text-shadow: none; background: var(--panel-hi); border-radius: 24px; }
+body[data-design="expressive"] .modal { border-radius: 28px; box-shadow: 0 24px 60px var(--shadow-c); }
+body[data-design="expressive"] .tile { border-radius: 24px; box-shadow: none; background: var(--panel); }
+body[data-design="expressive"] .contact-card, body[data-design="expressive"] .list-item { border-radius: 20px; box-shadow: none; }
+body[data-design="expressive"] .msg { border-radius: 18px; }
+body[data-design="expressive"] .side, body[data-design="expressive"] .right { background: var(--bg-0); }
+body[data-design="expressive"] .main-head, body[data-design="expressive"] .side-title { border: 0; }
+body[data-design="expressive"] .voice-controls .btn { min-width: 56px; padding: 14px 22px; }
+
+/* ---------- «Стекло»: полупрозрачные панели с размытием, тонкие линии, крупные заголовки ---------- */
+body[data-design="glass"] {
+  --bg-0: rgba(28, 28, 34, .62); --bg-1: #101016; --bg-2: rgba(36, 36, 44, .66); --panel: rgba(255, 255, 255, .07); --panel-hi: rgba(255, 255, 255, .13);
+  --line: rgba(255, 255, 255, .09); --text: #f2f2f7; --muted: rgba(235, 235, 245, .6); --glow: transparent; --glow-soft: rgba(255, 255, 255, .08);
+  --accent-dim: color-mix(in srgb, var(--accent) 30%, transparent);
+  --font: 'Inter', 'Segoe UI Variable Text', 'Segoe UI', sans-serif; --font-head: 'Inter', 'Segoe UI Variable Display', sans-serif;
+  --round: 1.25; --blur: blur(28px) saturate(1.7);
+  --body-bg: radial-gradient(1200px 800px at 15% 0%, color-mix(in srgb, var(--accent) 45%, #1a1030), transparent 60%),
+    radial-gradient(900px 700px at 100% 100%, #0b3b5c, transparent 60%), linear-gradient(160deg, #191626, #0b0d14);
+}
+body[data-design="glass"][data-mode="light"] {
+  --bg-0: rgba(246, 246, 250, .66); --bg-2: rgba(255, 255, 255, .7); --panel: rgba(255, 255, 255, .55); --panel-hi: rgba(255, 255, 255, .85);
+  --line: rgba(0, 0, 0, .08); --text: #1c1c1e; --muted: rgba(60, 60, 67, .62); --glow-soft: rgba(0, 0, 0, .07);
+  --accent-dim: color-mix(in srgb, var(--accent) 16%, rgba(255, 255, 255, .6));
+  --body-bg: radial-gradient(1100px 800px at 10% 0%, color-mix(in srgb, var(--accent) 30%, #fde7f0), transparent 60%),
+    radial-gradient(900px 700px at 100% 100%, #cfe6ff, transparent 60%), linear-gradient(160deg, #f6f2ff, #eef4fb);
+}
+body[data-design="glass"]::after { display: none; }
+body[data-design="glass"] .rail, body[data-design="glass"] .side, body[data-design="glass"] .right, body[data-design="glass"] #titlebar,
+body[data-design="glass"] .modal, body[data-design="glass"] .self-menu, body[data-design="glass"] .sticker-pop, body[data-design="glass"] .toast {
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+}
+body[data-design="glass"] .rail { background: var(--bg-0); border-right: 1px solid var(--line); }
+body[data-design="glass"] .side { background: var(--bg-0); border-right: 1px solid var(--line); }
+body[data-design="glass"] .right { background: var(--bg-0); border-left: 1px solid var(--line); }
+body[data-design="glass"] #titlebar { background: var(--bg-0); }
+body[data-design="glass"] .self-menu > div:first-child { background: var(--bg-2); }
+body[data-design="glass"] .card { background: var(--panel); backdrop-filter: var(--blur); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 0 0 1px var(--line), 0 18px 40px var(--shadow-c); }
+body[data-design="glass"] .main-head { height: 54px; border-color: var(--line); }
+body[data-design="glass"] .main-head .title { font-size: 1.35em; font-weight: 700; letter-spacing: -.02em; }
+body[data-design="glass"] .settings-body h2 { font-size: 2.1em; font-weight: 700; letter-spacing: -.03em; }
+body[data-design="glass"] .btn { background: var(--panel-hi); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12); }
+body[data-design="glass"] .btn.primary { background: var(--accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent); }
+body[data-design="glass"] .rail-btn { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .15); background: var(--panel-hi); }
+body[data-design="glass"] .rail-btn.logo { background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 80%, #fff), var(--accent)); }
+body[data-design="glass"] .nav.on { background: var(--accent); color: #fff; box-shadow: none; }
+body[data-design="glass"] .nav:hover { transform: none; }
+body[data-design="glass"] .nav .badge { background: #fff; color: var(--accent); box-shadow: none; }
+body[data-design="glass"] .input, body[data-design="glass"] .composer .field { background: var(--panel); box-shadow: inset 0 0 0 1px var(--line); }
+body[data-design="glass"] .input:focus, body[data-design="glass"] .composer .field:focus { box-shadow: inset 0 0 0 1px var(--line), 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+/* Ряд вариантов как сегментированный переключатель. */
+body[data-design="glass"] .chips { background: var(--panel); padding: 3px; border-radius: var(--r); gap: 2px; display: inline-flex; flex-wrap: wrap; }
+body[data-design="glass"] .chip { background: transparent; border-radius: calc(var(--r) - 3px); padding: 5px 12px; }
+body[data-design="glass"] .chip.on { background: var(--panel-hi); box-shadow: 0 1px 4px var(--shadow-c); }
+body[data-design="glass"] .switch { width: 46px; height: 28px; border-radius: 14px; background: var(--fill-hi); }
+body[data-design="glass"] .switch:after { width: 24px; height: 24px; top: 2px; left: 2px; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .3); }
+body[data-design="glass"] .switch:checked { background: #34c759; box-shadow: none; }
+body[data-design="glass"] .switch:checked:after { transform: translateX(18px); background: #fff; }
+body[data-design="glass"] .avatar { box-shadow: none; }
+body[data-design="glass"] .avatar.lg { border-color: transparent; box-shadow: 0 0 0 3px var(--bg-2); }
+body[data-design="glass"] .code-box { color: var(--text); text-shadow: none; background: var(--panel); }
+body[data-design="glass"] .settings-nav { background: transparent; border-right: 1px solid var(--line); }
+body[data-design="glass"] .modal { background: var(--bg-2); box-shadow: 0 0 0 1px var(--line), 0 30px 80px var(--shadow-c); }
+body[data-design="glass"] .tile { background: var(--panel); box-shadow: inset 0 0 0 1px var(--line); }
+body[data-design="glass"] .list-item, body[data-design="glass"] .contact-card { background: var(--panel); box-shadow: inset 0 0 0 1px var(--line); }
+body[data-design="glass"] .tabs { background: var(--panel); padding: 3px; border-radius: var(--r); }
+body[data-design="glass"] .tab.on { background: var(--panel-hi); box-shadow: 0 1px 4px var(--shadow-c); }

@@ -1,0 +1,289 @@
+/* Новые элементы интерфейса: реакции, ответы, правка, «печатает…», каналы 18+, таблички, значки, эффекты,
+   плотность и вид сообщений, фон приложения, плагины, поиск комнат в сети. */
+
+/* Нижняя панель с именем: кнопок стало больше, поэтому они компактнее, а колонка чуть шире. */
+.side { width: 262px; }
+.userbar { gap: 2px; padding: 8px 6px; }
+.userbar .icon-btn { width: 28px; height: 30px; font-size: 15px; flex: none; }
+.userbar .who { min-width: 90px; }
+
+/* ---------- Плотность ---------- */
+body.dense-compact .msg { padding-top: 1px; padding-bottom: 1px; }
+body.dense-compact .messages { gap: 0; }
+body.dense-compact .nav { padding-top: 5px; padding-bottom: 5px; }
+body.dense-compact .member { padding-top: 3px; padding-bottom: 3px; }
+body.dense-spacious .msg { padding-top: 8px; padding-bottom: 8px; }
+body.dense-spacious .messages { gap: 8px; }
+body.dense-spacious .nav { padding-top: 11px; padding-bottom: 11px; }
+body.dense-spacious .member { padding-top: 9px; padding-bottom: 9px; }
+
+/* ---------- Сообщения ---------- */
+.msg { position: relative; }
+.msg .text { font-family: var(--font-msg); }
+.msg.cont { padding-top: 0; padding-bottom: 1px; }
+.msg .cont-time { width: 32px; flex: none; font-size: 10px; color: transparent; text-align: right; padding-top: 3px; user-select: none; }
+.msg.cont:hover .cont-time { color: var(--muted); }
+.msg.mention { background: color-mix(in srgb, var(--warn) 9%, transparent); box-shadow: inset 2px 0 0 var(--warn); }
+.msg.flash { animation: msg-flash 1.2s; }
+@keyframes msg-flash { 0%, 40% { background: var(--accent-dim); } 100% { background: transparent; } }
+.msg .edited { font-size: 11px; color: var(--muted); margin-left: 4px; }
+.msg.deleted .text, .msg.deleted .sticker { opacity: .55; text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--accent) 70%, transparent); }
+.msg.deleted { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.del-mark { font-size: 11px; color: var(--accent-hi); background: var(--accent-dim); border-radius: 6px; padding: 0 6px; }
+.msg .text code { font-family: Consolas, 'Cascadia Mono', monospace; font-size: .92em; background: var(--fill); padding: 1px 5px; border-radius: 5px; }
+.msg .text .link, .bio .link { color: var(--accent-hi); text-decoration: underline; text-underline-offset: 2px; cursor: copy; word-break: break-all; }
+.spoiler { background: var(--fill-hi); color: transparent; border-radius: 4px; cursor: pointer; transition: color .2s, background .2s; padding: 0 2px; }
+.spoiler * { visibility: hidden; }
+.spoiler.open { color: inherit; background: var(--fill); cursor: text; }
+.spoiler.open * { visibility: visible; }
+.reply-ref { font-size: 12px; color: var(--muted); display: flex; gap: 5px; align-items: center; cursor: pointer; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.reply-ref b { color: var(--text); }
+.reply-ref:hover { color: var(--text); }
+.reply-ref .rr-arrow { color: var(--accent-hi); }
+
+/* Панель действий над сообщением (при наведении) */
+.msg-tools { position: absolute; right: 10px; top: -14px; display: none; gap: 2px; background: var(--bg-2); border-radius: var(--r-sm); padding: 2px; box-shadow: 0 0 0 1px var(--line), 0 6px 18px var(--shadow-c); z-index: 3; }
+.msg:hover .msg-tools { display: flex; }
+.msg-tools button { border: 0; background: transparent; width: 30px; height: 28px; border-radius: 6px; cursor: pointer; color: var(--text); }
+.msg-tools button:hover { background: var(--fill-hi); }
+.msg-tools button.danger:hover { background: var(--accent-dim); }
+
+/* Реакции */
+.reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.reactions:empty { display: none; }
+.rx { display: inline-flex; align-items: center; gap: 4px; border: 0; cursor: pointer; padding: 2px 8px; border-radius: 10px; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); color: var(--text); font-size: 13px; transition: transform .12s, background .15s; }
+.rx:hover { background: var(--fill-hi); }
+.rx:active { transform: scale(.92); }
+.rx.mine { background: var(--accent-dim); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent); }
+.rx .emoji { height: 18px; vertical-align: 0; margin: 0; }
+.rx .rx-n { font-size: 12px; font-weight: 600; }
+.rx-who { display: inline-flex; margin-left: 2px; }
+.rx-who .avatar { width: 16px; height: 16px; font-size: 8px; margin-left: -5px; box-shadow: 0 0 0 1.5px var(--bg-2); }
+.rx-who .avatar:first-child { margin-left: 0; }
+.rx-pop { position: fixed; z-index: 70; background: var(--bg-2); border-radius: var(--r); padding: 8px; box-shadow: 0 0 0 1px var(--line), 0 12px 34px var(--shadow-c); width: 300px; animation: pop .18s both; }
+.rx-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.rx-grid.own { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.rx-opt { border: 0; background: transparent; font-size: 20px; height: 38px; border-radius: 8px; cursor: pointer; display: grid; place-items: center; }
+.rx-opt:hover { background: var(--fill-hi); transform: scale(1.12); }
+.rx-opt .emoji { height: 26px; margin: 0; vertical-align: 0; }
+
+/* Правка, ответ, «печатает…» */
+.edit-box { margin-top: 4px; }
+.edit-field { resize: vertical; min-height: 44px; }
+.reply-bar { display: none; margin: 0 16px; padding: 6px 10px; border-radius: var(--r) var(--r) 0 0; background: var(--panel); font-size: 13px; color: var(--muted); align-items: center; justify-content: space-between; gap: 8px; }
+.reply-bar.on { display: flex; }
+.reply-bar b { color: var(--text); }
+.reply-bar .icon-btn { width: 24px; height: 24px; font-size: 12px; }
+.typing { height: 20px; padding: 0 22px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex: none; overflow: hidden; white-space: nowrap; }
+.typing b { color: var(--text); }
+.typing .dots { display: inline-flex; gap: 3px; }
+.typing .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: typing-dot 1.2s infinite; }
+.typing .dots i:nth-child(2) { animation-delay: .15s; }
+.typing .dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes typing-dot { 0%, 60%, 100% { transform: none; opacity: .5; } 30% { transform: translateY(-3px); opacity: 1; } }
+body.no-typing-anim .typing .dots i { animation: none; opacity: .8; }
+
+/* Сообщения пузырями: свои справа */
+body.msgs-bubbles .msg { max-width: 78%; align-self: flex-start; }
+body.msgs-bubbles .msg .body { background: var(--panel); padding: 7px 12px; border-radius: var(--r-lg) var(--r-lg) var(--r-lg) 4px; min-width: 60px; }
+body.msgs-bubbles .msg.mine { align-self: flex-end; flex-direction: row-reverse; }
+body.msgs-bubbles .msg.mine .body { background: var(--accent-dim); border-radius: var(--r-lg) var(--r-lg) 4px var(--r-lg); }
+body.msgs-bubbles .msg:hover { background: transparent; }
+body.msgs-bubbles .msg.mine .msg-tools { right: auto; left: 10px; }
+body.msgs-bubbles .msg.cont .cont-time { display: none; }
+body.msgs-bubbles .msg.cont { padding-left: 52px; }
+body.msgs-bubbles .msg.mine.cont { padding-left: 8px; padding-right: 52px; }
+/* Компактно: время, имя и текст в одну строку, без аватаров */
+body.msgs-compact .msg > .avatar, body.msgs-compact .msg > .cont-time { display: none; }
+body.msgs-compact .msg { padding-top: 1px; padding-bottom: 1px; }
+body.msgs-compact .msg .body { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; }
+body.msgs-compact .msg .head { order: -1; flex-direction: row-reverse; gap: 8px; }
+body.msgs-compact .msg .text { flex: 1; min-width: 200px; }
+body.msgs-compact .msg .reply-ref, body.msgs-compact .msg .reactions, body.msgs-compact .msg .sticker { flex-basis: 100%; }
+
+/* ---------- Шапка канала, 18+, задержка ---------- */
+.main-head .topic { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; border-left: 1px solid var(--line); padding-left: 12px; }
+.main-head .icon-btn.on { background: var(--fill); }
+.nsfw-pill, .nsfw-tag { font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 6px; background: #d4183d; color: #fff; letter-spacing: .03em; }
+.nav .nsfw-tag { margin-left: 4px; }
+.nav .nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav .nav-ic { width: 16px; text-align: center; flex: none; }
+.nav .typing-ic { margin-left: auto; display: inline-flex; gap: 2px; }
+.nav .typing-ic i { width: 4px; height: 4px; border-radius: 50%; background: var(--text); animation: typing-dot 1.2s infinite; }
+.nav .typing-ic i:nth-child(2) { animation-delay: .15s; }
+.nav .typing-ic i:nth-child(3) { animation-delay: .3s; }
+.room-header .ping { font-size: 11px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.room-header .ping.good { color: var(--online); }
+.room-header .ping.ok { color: var(--warn); }
+.room-header .ping.bad { color: #ff5a5a; }
+.room-header.has-banner .ping { position: absolute; right: 10px; top: 8px; background: rgba(0, 0, 0, .55); padding: 1px 7px; border-radius: 8px; }
+.messages.nsfw.blur-media .sticker, .messages.nsfw.blur-media .text .emoji { filter: blur(var(--nsfw-blur, 18px)); transition: filter .2s; }
+.messages.nsfw.blur-media .sticker:hover, .messages.nsfw.blur-media .text .emoji:hover { filter: none; }
+
+/* ---------- Статусы ---------- */
+.dot.idle { background: #f0b232; }
+.dot.dnd { background: #f23f43; }
+.dot.dnd::after { content: ''; position: absolute; left: 2px; right: 2px; top: 50%; height: 2px; margin-top: -1px; background: var(--bg-2); border-radius: 1px; }
+
+/* ---------- Голосовой канал ---------- */
+.voice-member { cursor: pointer; }
+.voice-member .vflags { margin-left: auto; display: inline-flex; gap: 3px; font-size: 11px; align-items: center; }
+.live { background: #e0245e; color: #fff; font-size: 9px; font-weight: 800; padding: 0 5px; border-radius: 4px; letter-spacing: .04em; }
+.tile .net { position: absolute; right: 8px; top: 8px; font-size: 11px; background: rgba(0, 0, 0, .55); color: #fff; padding: 1px 7px; border-radius: 8px; }
+.tile .net:empty { display: none; }
+.tile .net.lan { background: color-mix(in srgb, var(--online) 70%, #000); }
+.tile .net.bad { background: #a8261f; }
+.spectators { position: absolute; left: 8px; top: 8px; display: flex; align-items: center; gap: 6px; background: rgba(0, 0, 0, .6); color: #fff; padding: 3px 8px 3px 4px; border-radius: 14px; font-size: 12px; }
+.spectators .avatar { width: 20px; height: 20px; font-size: 9px; margin-left: -6px; box-shadow: 0 0 0 2px rgba(0, 0, 0, .6); }
+.spectators .avatar:first-child { margin-left: 0; }
+
+/* ---------- Новые рамки и эффекты имени ---------- */
+.avatar.frame-aura { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, #fff), 0 0 18px 4px color-mix(in srgb, var(--accent) 55%, transparent); animation: aura 3s ease-in-out infinite; }
+@keyframes aura { 50% { box-shadow: 0 0 0 2px var(--accent-hi), 0 0 26px 8px color-mix(in srgb, var(--accent) 40%, transparent); } }
+.avatar.frame-double { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--accent), 0 0 0 6px var(--bg-2), 0 0 0 8px var(--accent-hi); }
+.avatar.frame-orbit::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; z-index: 4; pointer-events: none;
+  background: radial-gradient(circle at 50% 0, var(--accent-hi) 0 3px, transparent 3.5px), radial-gradient(circle at 50% 100%, var(--accent) 0 2.5px, transparent 3px);
+  animation: spin 4s linear infinite; }
+.fx-shine { background-image: linear-gradient(110deg, currentColor 35%, #fff 50%, currentColor 65%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: shine 2.6s linear infinite; }
+@keyframes shine { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+.fx-glitch { position: relative; display: inline-block; text-shadow: 1.5px 0 #ff2a6d, -1.5px 0 #05d9e8; animation: glitch 2.4s steps(1) infinite; }
+@keyframes glitch { 0%, 88%, 100% { text-shadow: 1.5px 0 #ff2a6d, -1.5px 0 #05d9e8; transform: none; } 90% { text-shadow: -2px 0 #ff2a6d, 2px 0 #05d9e8; transform: translateX(1px) skewX(-6deg); } 94% { text-shadow: 2px 0 #ff2a6d, -2px 0 #05d9e8; transform: translateX(-1px); } }
+.fx-flicker { text-shadow: 0 0 8px var(--accent), 0 0 2px var(--accent-hi); animation: flicker 3s infinite; }
+@keyframes flicker { 0%, 19%, 22%, 62%, 64%, 100% { opacity: 1; } 20%, 63% { opacity: .35; } }
+.name-grad { -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.nf-serif { font-family: 'Source Serif 4', Georgia, serif; }
+.nf-mono { font-family: Consolas, 'Cascadia Mono', monospace; letter-spacing: -.02em; }
+.nf-script { font-family: 'Segoe Script', 'Brush Script MT', cursive; font-weight: 400; }
+.nf-heavy { font-family: 'Arial Black', 'Segoe UI Black', sans-serif; font-weight: 900; }
+.nf-wide { text-transform: uppercase; letter-spacing: .16em; font-size: .9em; }
+
+/* ---------- Таблички в списке участников ---------- */
+.member[class*="plate-"] { background-size: cover; background-position: center; color: #fff; }
+.member[class*="plate-"] .act { color: rgba(255, 255, 255, .78); }
+.member.plate-aurora { background-image: linear-gradient(110deg, #0b3d3a, #1d7a6b 35%, #4f37a8 70%, #12122a); background-size: 200% 100%; animation: plate-slide 8s ease-in-out infinite alternate; }
+.member.plate-sunset { background-image: linear-gradient(100deg, #3a0f2e, #b2385a 45%, #f39c4a 85%); }
+.member.plate-ocean { background-image: linear-gradient(100deg, #061f3a, #0c5f8f 50%, #1fb3c9); }
+.member.plate-void { background-image: radial-gradient(circle at 80% 50%, #3a1366, #07030f 70%); }
+.member.plate-grid { background-image: linear-gradient(rgba(255, 42, 109, .25) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 42, 109, .25) 1px, transparent 1px), linear-gradient(100deg, #160022, #2b0a3d); background-size: 12px 12px, 12px 12px, auto; }
+.member.plate-candy { background-image: repeating-linear-gradient(-45deg, #ff7eb6 0 10px, #ffb3d1 10px 20px); color: #3a0a22; }
+.member.plate-candy .act { color: rgba(58, 10, 34, .75); }
+.member.plate-forest { background-image: linear-gradient(100deg, #0c2412, #1f5a2c 55%, #6c9a3c); }
+.member.plate-img { background-size: cover; }
+@keyframes plate-slide { to { background-position: 100% 0; } }
+.preview-row { padding: 0 14px 14px; }
+.preview-row .member { margin-top: 6px; }
+
+/* ---------- Карточка профиля ---------- */
+.profile-card-bg.cs-glass .profile-body { background: color-mix(in srgb, var(--bg-2) 55%, transparent); backdrop-filter: blur(14px); margin: -40px 10px 10px; padding-top: 10px; border-radius: var(--r-lg); }
+.profile-card-bg.cs-glass .profile-body .avatar.lg { margin-top: -30px; }
+.profile-card-bg.cs-solid { background: linear-gradient(160deg, color-mix(in srgb, var(--pc, var(--accent)) 45%, var(--bg-2)), color-mix(in srgb, var(--pc2, var(--pc, var(--accent))) 35%, var(--bg-0))) !important; }
+.profile-card-bg.cs-outline { box-shadow: inset 0 0 0 2px var(--pc, var(--accent)), 0 0 30px color-mix(in srgb, var(--pc, var(--accent)) 30%, transparent); }
+.profile-card-bg[style*="--pc2"]:not(.cs-solid) { background-image: linear-gradient(170deg, color-mix(in srgb, var(--pc) 22%, transparent), color-mix(in srgb, var(--pc2) 22%, transparent)); }
+.profile-card-bg .fx-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; }
+.profile-body { position: relative; z-index: 2; }
+.badges { display: flex; gap: 4px; justify-content: flex-end; margin-top: -30px; min-height: 30px; align-items: center; }
+.bdg { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--fill-hi); font-size: 15px; cursor: default; }
+.bio { margin-top: 12px; white-space: pre-wrap; word-break: break-word; }
+.links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.plink { font-size: 12px; background: var(--fill); padding: 3px 9px; border-radius: 10px; cursor: copy; }
+.plink:hover { background: var(--fill-hi); }
+.profile-modal { width: min(400px, 92vw); }
+.badge-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.sub-tabs { margin-bottom: 14px; flex-wrap: wrap; }
+.pf-section { margin-top: 14px; padding: 10px 12px; border-radius: var(--r); background: var(--fill); font-size: 13px; }
+.pf-section .lbl2 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 4px; }
+
+/* ---------- Внешний вид: выбор дизайна ---------- */
+.design-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.design-card { border-radius: var(--r-lg); padding: 10px; cursor: pointer; background: var(--panel); box-shadow: inset 0 0 0 1px var(--line); transition: transform .2s, box-shadow .2s; }
+.design-card:hover { transform: translateY(-2px); }
+.design-card.on { box-shadow: inset 0 0 0 2px var(--accent); }
+.design-name { font-weight: 700; margin-top: 8px; }
+.design-thumb { height: 74px; border-radius: 10px; position: relative; overflow: hidden; display: flex; gap: 4px; padding: 6px; }
+.design-thumb i { display: block; border-radius: 6px; }
+.design-thumb i:nth-child(1) { width: 14px; }
+.design-thumb i:nth-child(2) { width: 34px; }
+.design-thumb i:nth-child(3) { flex: 1; }
+.design-thumb b { position: absolute; right: 12px; bottom: 12px; width: 28px; height: 12px; border-radius: 6px; }
+.design-thumb[data-d="neon"] { background: #0a0305; }
+.design-thumb[data-d="neon"] i { background: #1d0a10; box-shadow: inset 0 0 0 1px rgba(255, 42, 68, .35); }
+.design-thumb[data-d="neon"] b { box-shadow: 0 0 10px #ff2a44; }
+.design-thumb[data-d="clay"] { background: #ebe6db; }
+.design-thumb[data-d="clay"] i { background: #faf8f3; box-shadow: 0 0 0 1px rgba(60, 45, 30, .12); }
+.design-thumb[data-d="expressive"] { background: #1c1a21; }
+.design-thumb[data-d="expressive"] i { background: #2f2a3b; border-radius: 12px; }
+.design-thumb[data-d="expressive"] b { border-radius: 999px; width: 36px; height: 16px; }
+.design-thumb[data-d="glass"] { background: linear-gradient(135deg, #f8d7e6, #cfe6ff); }
+.design-thumb[data-d="glass"] i { background: rgba(255, 255, 255, .6); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .8); }
+.swatch { width: 28px; height: 28px; border-radius: 50%; border: 0; cursor: pointer; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .15); transition: transform .15s; }
+.swatch:hover { transform: scale(1.12); }
+.swatch.on { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--text); }
+textarea.input.code { font-family: Consolas, 'Cascadia Mono', monospace; font-size: 12px; resize: vertical; }
+body.gif-hover .avatar img, body.gif-hover .sticker { filter: none; }
+
+/* Фон приложения по ссылке */
+#app-bg { position: fixed; inset: 0; z-index: 0; background-size: cover; background-position: center; filter: blur(var(--blur, 0)); transform: scale(1.04); pointer-events: none; }
+#app-bg::after { content: ''; position: absolute; inset: 0; background: var(--bg-1); opacity: var(--dim, .55); }
+#app-bg .bg-media { width: 100%; height: 100%; object-fit: cover; }
+body.has-app-bg #app { z-index: 1; }
+body.has-app-bg .rail, body.has-app-bg .side, body.has-app-bg .right { background: color-mix(in srgb, var(--bg-0) 72%, transparent); backdrop-filter: blur(16px); }
+body.has-app-bg .main { background: color-mix(in srgb, var(--bg-1) 35%, transparent); }
+
+/* ---------- Плагины ---------- */
+.plugin-card { background: var(--panel); border-radius: var(--r); padding: 12px; margin-bottom: 8px; box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow .2s; }
+.plugin-card.on { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.plugin-card .pname { font-weight: 650; }
+.plugin-card .sub { font-size: 12px; color: var(--muted); }
+.plugin-card .origin { font-size: 11px; color: var(--accent-hi); margin-top: 2px; }
+.plugin-card .err { font-size: 12px; color: var(--warn); }
+.plugin-card .icon-btn.on { background: var(--fill-hi); }
+.plugin-settings { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--line); }
+.migrate-list { max-height: 50vh; overflow-y: auto; margin: 10px 0; }
+.migrate-list .list-item { padding: 8px 10px; margin-bottom: 4px; }
+
+/* ---------- Каналы (настройки комнаты) ---------- */
+.ch-list { display: flex; flex-direction: column; gap: 6px; }
+.ch-row { display: flex; align-items: center; gap: 8px; background: var(--panel); border-radius: var(--r); padding: 8px; }
+.ch-ic { width: 22px; text-align: center; color: var(--muted); }
+.ch-fields { display: flex; flex-direction: column; gap: 6px; }
+.ch-fields .input { padding: 6px 10px; }
+.ch-nsfw { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--muted); }
+
+/* ---------- Меню, подсказки, рельса ---------- */
+.ctx-menu { position: fixed; z-index: 80; min-width: 190px; background: var(--bg-2); border-radius: var(--r); padding: 5px; box-shadow: 0 0 0 1px var(--line), 0 12px 36px var(--shadow-c); animation: pop .14s both; }
+.ctx-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.ctx-item:hover { background: var(--accent-dim); }
+.ctx-item.danger { color: #ff6b6b; }
+.tip { position: fixed; z-index: 90; background: var(--bg-0); color: var(--text); padding: 8px 12px; border-radius: var(--r); font-size: 12px; box-shadow: 0 0 0 1px var(--line), 0 8px 24px var(--shadow-c); pointer-events: none; max-width: 280px; animation: fade .12s both; }
+.tip b { font-size: 13px; display: block; margin-bottom: 2px; }
+.tip div { color: var(--muted); }
+.rail-btn.pinned::after { content: ''; position: absolute; right: 2px; top: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.rail-btn.add { font-size: 22px; font-weight: 400; color: var(--online); background: var(--panel); }
+.rail-count { font-size: 10px; color: var(--muted); text-align: center; line-height: 1.2; user-select: none; }
+
+/* ---------- Главная: комнаты в сети, переподключение ---------- */
+.lan-room { background: color-mix(in srgb, var(--online) 8%, var(--panel)); }
+.lan-ic { font-size: 20px; }
+.empty.reconnect { padding-top: 12vh; }
+.spinner { width: 34px; height: 34px; margin: 0 auto 12px; border-radius: 50%; border: 3px solid var(--fill-hi); border-top-color: var(--accent); animation: spin .9s linear infinite; }
+
+/* ---------- Плагины: панель музыки, счётчики, эффекты экрана ---------- */
+.np-panel { margin: 0 8px 8px; padding: 8px 10px; border-radius: var(--r); background: var(--panel); box-shadow: inset 0 0 0 1px var(--line); font-size: 12px; }
+.np-panel .np-title { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-panel .np-artist { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-panel .np-bar { height: 3px; border-radius: 2px; background: var(--fill-hi); margin: 6px 0; overflow: hidden; }
+.np-panel .np-bar i { display: block; height: 100%; background: var(--accent); }
+.np-panel .np-ctrl { display: flex; gap: 2px; justify-content: center; }
+.np-panel .np-ctrl .icon-btn { width: 30px; height: 26px; font-size: 13px; }
+.member-counter { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 4px 4px 10px; }
+.member-counter div { background: var(--panel); border-radius: var(--r-sm); padding: 6px; text-align: center; font-size: 11px; color: var(--muted); }
+.member-counter b { display: block; font-size: 16px; color: var(--text); }
+.voice-ic { font-size: 11px; margin-left: 4px; opacity: .85; }
+#screen-fx { position: fixed; inset: 32px 0 0 0; width: 100%; height: calc(100% - 32px); pointer-events: none; z-index: 45; }
+#screen-fx.behind { z-index: 0; }
+.img-viewer { max-width: 86vw; max-height: 82vh; display: block; margin: auto; border-radius: var(--r); }
+.viewable { cursor: zoom-in; }
+.watch-btn.on { color: var(--accent-hi); }
+.call-timer { font-variant-numeric: tabular-nums; color: var(--online); }
+.pet-anim { animation: pet .35s ease-in-out 6; transform-origin: bottom center; }
+@keyframes pet { 50% { transform: scale(1.12, .82); } }

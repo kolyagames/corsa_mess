@@ -61,9 +61,35 @@
       this.applyMute();
       this.watch('me', this.micStream);
       if (!this.timer) this.timer = setInterval(() => this.poll(), 100);
-      this.client.send({ t: 'voice', channel });
+      if (!this.statsTimer) this.statsTimer = setInterval(() => this.collectStats(), 2000);
+      this.joinedAt = Date.now();
+      this.client.send({ t: 'voice', channel, muted: this.muted, deaf: this.deafened });
       this.onChange();
     }
+
+    // Задержка до каждого участника и признак прямого соединения по локальной сети (оба адреса — адреса компьютеров).
+    async collectStats() {
+      for (const peer of this.peers.values()) {
+        if (peer.pc.connectionState !== 'connected') continue;
+        try {
+          const report = await peer.pc.getStats();
+          let pair = null;
+          report.forEach((r) => { if (r.type === 'transport' && r.selectedCandidatePairId) pair = report.get(r.selectedCandidatePairId); });
+          if (!pair) report.forEach((r) => { if (!pair && r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') pair = r; });
+          if (!pair) continue;
+          const local = report.get(pair.localCandidateId);
+          const remote = report.get(pair.remoteCandidateId);
+          const lan = !!(local && remote && local.candidateType === 'host' && remote.candidateType === 'host');
+          const rtt = Number.isFinite(pair.currentRoundTripTime) ? Math.round(pair.currentRoundTripTime * 1000) : null;
+          const was = peer.stats && peer.stats.lan;
+          peer.stats = { lan, rtt };
+          if (was !== lan) this.tuneSenders(peer);
+        } catch (e) { /* соединение закрылось */ }
+      }
+      if (this.peers.size) this.onChange(true);
+    }
+
+    sendFlags(extra) { this.client.send({ t: 'voice-flags', muted: this.muted, deaf: this.deafened, ...extra }); }
 
     async leave() {
       if (!this.channel) return;
@@ -75,6 +101,9 @@
       this.speaking.clear();
       clearInterval(this.timer);
       this.timer = null;
+      clearInterval(this.statsTimer);
+      this.statsTimer = null;
+      this.joinedAt = null;
       this.channel = null;
       this.client.send({ t: 'voice', channel: null });
       this.onChange();
@@ -84,11 +113,12 @@
       if (this.micStream) this.micStream.getAudioTracks().forEach((t) => { t.enabled = !this.muted && !this.deafened; });
     }
 
-    setMuted(v) { this.muted = v; this.applyMute(); this.onChange(); }
+    setMuted(v) { this.muted = v; this.applyMute(); if (this.channel) this.sendFlags(); this.onChange(); }
     setDeafened(v) {
       this.deafened = v;
       this.applyMute();
       for (const el of this.audioEls.values()) el.muted = v;
+      if (this.channel) this.sendFlags();
       this.onChange();
     }
 
@@ -215,7 +245,9 @@
           p.encodings[0].maxBitrate = this.audioBitrate();
           p.encodings[0].priority = 'high';
         } else if (this.screenStream && this.screenStream.getVideoTracks().includes(sender.track)) {
-          p.encodings[0].maxBitrate = (s.screenMbps || 8) * 1e6;
+          // Зрителю в той же локальной сети отдаём больше: сеть это выдержит.
+          const lan = s.lanBoost && peer.stats && peer.stats.lan;
+          p.encodings[0].maxBitrate = Math.max(s.screenMbps || 8, lan ? s.lanScreenMbps || 40 : 0) * 1e6;
           p.encodings[0].maxFramerate = s.screenFps || 60;
           p.degradationPreference = s.screenPrefer === 'fps' ? 'maintain-framerate' : 'maintain-resolution';
         }
@@ -280,6 +312,7 @@
         for (const t of stream.getTracks()) peer.senders.set(t.id, peer.pc.addTrack(t, stream));
         this.tuneSenders(peer);
       }
+      this.sendFlags({ screen: true });
       this.onChange();
     }
 
@@ -293,6 +326,7 @@
         }
       }
       this.screenStream = null;
+      if (this.channel) this.sendFlags({ screen: false });
       if (notify) this.onChange();
     }
 

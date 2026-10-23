@@ -95,10 +95,12 @@
           this.voice = m.voice;
           this.emit('welcome');
           break;
-        case 'member':
+        case 'member': {
+          const prev = this.members.get(m.member.sid) || null;
           this.members.set(m.member.sid, m.member);
-          this.emit('member', m.member);
+          this.emit('member', m.member, prev);
           break;
+        }
         case 'left': {
           const who = this.members.get(m.sid);
           this.members.delete(m.sid);
@@ -113,8 +115,37 @@
           this.emit('msg', m.channel, m.msg);
           break;
         }
+        case 'edit': {
+          const list = this.history.get(m.channel) || [];
+          const i = list.findIndex((x) => x.id === m.msg.id);
+          const before = i >= 0 ? list[i] : null;
+          if (i >= 0) list[i] = m.msg;
+          this.emit('edit', m.channel, m.msg, before);
+          break;
+        }
+        case 'delete': {
+          const list = this.history.get(m.channel) || [];
+          const i = list.findIndex((x) => x.id === m.id);
+          const gone = i >= 0 ? list.splice(i, 1)[0] : null;
+          this.emit('delete', m.channel, m.id, gone, m.by);
+          break;
+        }
+        case 'react': {
+          const msg = (this.history.get(m.channel) || []).find((x) => x.id === m.id);
+          if (msg) { msg.reactions = m.reactions; msg.remoji = m.remoji; }
+          this.emit('react', m.channel, m.id, m.reactions, m.remoji);
+          break;
+        }
+        case 'typing':
+          this.emit('typing', m.channel, m.sid);
+          break;
+        case 'pong':
+          if (Number.isFinite(m.ts)) { this.ping = Math.max(0, Math.round(performance.now() - m.ts)); this.emit('ping', this.ping); }
+          break;
         case 'room':
           this.room = { ...this.room, ...m.room };
+          // Удалённых каналов больше нет и в истории.
+          if (m.room.channels) for (const c of m.room.channels) if (c.type === 'text' && !this.history.has(c.id)) this.history.set(c.id, []);
           this.emit('room');
           break;
         case 'voice':
@@ -125,6 +156,8 @@
           this.emit('rtc', m.from, m.data);
           break;
         case 'error':
+          // Исключение, бан и вход с другого места: после такого переподключаться не нужно.
+          if (m.code === 'kicked' || m.code === 'banned' || /другого места/.test(m.text || '')) this.noReconnect = true;
           this.emit('error', m.text);
           break;
         default:

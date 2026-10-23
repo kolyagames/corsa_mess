@@ -364,6 +364,115 @@ async function testUpnp() {
   await new Promise((r) => igd.close(r));
 }
 
+// Каналы, ответы, правка, удаление, реакции, «печатает…», новые поля профиля и статусы.
+async function testChat() {
+  const srv = createRoomServer({ name: 'чат', port: 0, ownerUid: 'own' });
+  const port = await srv.start();
+  const a = await connect(port);
+  a.send(JSON.stringify({ t: 'hello', uid: 'own', name: 'Хозяин' }));
+  await a.next((m) => m.t === 'welcome');
+  const b = await connect(port);
+  b.send(JSON.stringify({
+    t: 'hello', uid: 'guest', name: 'Гость', status: 'dnd', color2: '#112233', nameColor: 'red', nameFont: 'script', effect: 'snow', plate: 'aurora',
+    plateUrl: 'https://evil.com/p.png', cardStyle: 'glass', badges: ['gamer', 'hacker', 'gamer', 'cat'], links: [{ label: 'Steam', url: 'kolya' }, {}, {}, { label: 'лишняя' }],
+  }));
+  const wb = await b.next((m) => m.t === 'welcome');
+  const g = wb.members.find((m) => m.sid === wb.sid);
+  assert.strictEqual(g.status, 'dnd');
+  assert.strictEqual(g.color2, '#112233');
+  assert.strictEqual(g.nameColor, null, 'цвет только в виде #rrggbb');
+  assert.strictEqual(g.nameFont, 'script');
+  assert.strictEqual(g.effect, 'snow');
+  assert.strictEqual(g.plateUrl, null, 'табличка только с проверенных сайтов');
+  assert.deepStrictEqual(g.badges, ['gamer', 'cat'], 'неизвестные и повторные значки отбрасываются');
+  assert.deepStrictEqual(g.links, [{ label: 'Steam', url: 'kolya' }]);
+  assert.ok(g.since > 0 && g.joinedAt > 0);
+  assert.strictEqual(wb.members.find((m) => m.name === 'Хозяин').host, true);
+
+  // Каналы меняет только владелец.
+  b.send(JSON.stringify({ t: 'channel-set', op: 'add', name: 'взлом', type: 'text' }));
+  assert.match((await b.next((m) => m.t === 'error')).text, /только владелец/);
+  a.send(JSON.stringify({ t: 'channel-set', op: 'add', name: 'арт', type: 'text', category: 'Творчество', nsfw: true, topic: 'рисунки' }));
+  const added = (await b.next((m) => m.t === 'room' && m.room.channels.length === 6)).room.channels.pop();
+  assert.deepStrictEqual({ name: added.name, category: added.category, nsfw: added.nsfw, topic: added.topic }, { name: 'арт', category: 'Творчество', nsfw: true, topic: 'рисунки' });
+  a.send(JSON.stringify({ t: 'channel-set', op: 'edit', id: added.id, name: 'арт-18', nsfw: false }));
+  const edited = (await b.next((m) => m.t === 'room' && m.room.channels.some((c) => c.name === 'арт-18'))).room.channels.find((c) => c.id === added.id);
+  assert.strictEqual(edited.nsfw, false);
+  a.send(JSON.stringify({ t: 'channel-set', op: 'move', id: added.id, dir: -1 }));
+  const moved = (await b.next((m) => m.t === 'room' && m.room.channels[4].id === added.id)).room.channels;
+  assert.strictEqual(moved[4].id, added.id);
+
+  // Ответ, правка и удаление.
+  a.send(JSON.stringify({ t: 'msg', channel: 'general', text: 'исходное' }));
+  const orig = (await b.next((m) => m.t === 'msg')).msg;
+  b.send(JSON.stringify({ t: 'msg', channel: 'general', text: 'ответ', reply: orig.id }));
+  const rep = (await a.next((m) => m.t === 'msg' && m.msg.text === 'ответ')).msg;
+  assert.deepStrictEqual(rep.reply, { id: orig.id, name: 'Хозяин', text: 'исходное' });
+  b.send(JSON.stringify({ t: 'edit', channel: 'general', id: orig.id, text: 'чужая правка' }));
+  a.send(JSON.stringify({ t: 'edit', channel: 'general', id: orig.id, text: 'исправлено' }));
+  const ed = await b.next((m) => m.t === 'edit');
+  assert.strictEqual(ed.msg.text, 'исправлено', 'чужое сообщение изменить нельзя, своё можно');
+  assert.ok(ed.msg.edited);
+  b.send(JSON.stringify({ t: 'delete', channel: 'general', id: orig.id }));
+  a.send(JSON.stringify({ t: 'delete', channel: 'general', id: rep.id }));
+  const del = await b.next((m) => m.t === 'delete');
+  assert.strictEqual(del.id, rep.id, 'гость не удалит чужое, владелец удалит любое');
+
+  // Реакции: обычный эмодзи, свой эмодзи только с проверенного сайта, повторное нажатие снимает.
+  b.send(JSON.stringify({ t: 'react', channel: 'general', id: orig.id, emoji: '🔥' }));
+  let rx = await a.next((m) => m.t === 'react');
+  assert.strictEqual(rx.reactions['🔥'].length, 1);
+  b.send(JSON.stringify({ t: 'react', channel: 'general', id: orig.id, emoji: 'текст' }));
+  b.send(JSON.stringify({ t: 'react', channel: 'general', id: orig.id, emoji: ':cat:', url: 'https://evil.com/c.png' }));
+  b.send(JSON.stringify({ t: 'react', channel: 'general', id: orig.id, emoji: ':cat:', url: 'https://i.imgur.com/c.png' }));
+  rx = await a.next((m) => m.t === 'react');
+  assert.deepStrictEqual(Object.keys(rx.reactions), ['🔥', ':cat:'], 'текст и чужой сайт не становятся реакцией');
+  assert.strictEqual(rx.remoji[':cat:'], 'https://i.imgur.com/c.png');
+  b.send(JSON.stringify({ t: 'react', channel: 'general', id: orig.id, emoji: '🔥' }));
+  rx = await a.next((m) => m.t === 'react');
+  assert.ok(!rx.reactions['🔥']);
+
+  // «Печатает…» приходит другим, но не чаще раза в две секунды.
+  b.send(JSON.stringify({ t: 'typing', channel: 'general' }));
+  b.send(JSON.stringify({ t: 'typing', channel: 'general' }));
+  assert.strictEqual((await a.next((m) => m.t === 'typing')).sid, wb.sid);
+  await assert.rejects(a.next((m) => m.t === 'typing', 400), /таймаут/);
+
+  // Голос: флаги и «кого смотрит» только внутри своего канала.
+  b.send(JSON.stringify({ t: 'voice', channel: 'voice1', muted: true }));
+  const vm = await a.next((m) => m.t === 'member' && m.member.sid === wb.sid && m.member.muted);
+  assert.strictEqual(vm.member.muted, true);
+  b.send(JSON.stringify({ t: 'voice-flags', screen: true, watching: 'nobody' }));
+  const vf = await a.next((m) => m.t === 'member' && m.member.sid === wb.sid && m.member.screen);
+  assert.strictEqual(vf.member.watching, null);
+  b.send(JSON.stringify({ t: 'ping', ts: 123 }));
+  assert.strictEqual((await b.next((m) => m.t === 'pong')).ts, 123);
+
+  // Удалённый канал пропадает вместе с историей, последний текстовый канал не удаляется.
+  a.send(JSON.stringify({ t: 'channel-set', op: 'delete', id: 'voice1' }));
+  await b.next((m) => m.t === 'room' && !m.room.channels.some((c) => c.id === 'voice1'));
+  const v2 = await b.next((m) => m.t === 'voice' && !('voice1' in m.voice));
+  assert.ok(v2, 'голосовой канал пропадает из состояния голоса');
+  const left = await b.next((m) => m.t === 'member' && m.member.sid === wb.sid && !m.member.screen, 300).catch(() => null);
+  assert.ok(left === null || left.member.watching === null);
+  a.close(); b.close();
+  await srv.stop();
+}
+
+// Поиск комнат в локальной сети: ответ приходит на запрос, сведения о комнате верные.
+async function testLan() {
+  const lan = require('../server/lan');
+  const port = 47000 + Math.floor(Math.random() * 900);
+  const responder = lan.createResponder({ port, getInfo: () => ({ name: 'Комната Коли', locked: true, members: 3, max: 50, port: 7777, fp: 'AB:CD' }) });
+  await responder.ready;
+  const found = await lan.scan({ port, timeoutMs: 600, extra: ['127.0.0.1'] });
+  responder.close();
+  const r = found.find((x) => x.name === 'Комната Коли');
+  assert.ok(r, 'комната должна найтись');
+  assert.deepStrictEqual({ port: r.port, locked: r.locked, members: r.members }, { port: 7777, locked: true, members: 3 });
+  assert.strictEqual(lan.sameNet('8.8.8.8'), false, 'адресам из интернета сервер не отвечает');
+}
+
 (async () => {
   testCode(); console.log('ok  код комнаты');
   testAllowlist(); console.log('ok  список сайтов');
@@ -371,4 +480,6 @@ async function testUpnp() {
   await testServer(); console.log('ok  сервер комнаты');
   await testSecurity(); console.log('ok  защита: пароль, лимиты, бан, TLS');
   await testUpnp(); console.log('ok  UPnP на макете роутера');
+  await testChat(); console.log('ok  каналы, ответы, правка, реакции, «печатает…», профиль');
+  await testLan(); console.log('ok  поиск комнат в локальной сети');
 })().catch((e) => { console.error('ПРОВАЛ:', e); process.exit(1); });

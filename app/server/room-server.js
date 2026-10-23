@@ -19,8 +19,15 @@ const LIMITS = {
 };
 const KDF_ITERATIONS = 150000;
 
-const FRAMES = ['none', 'neon', 'gradient', 'rainbow', 'pulse'];
-const NAME_FX = ['none', 'glow', 'gradient', 'rainbow'];
+const FRAMES = ['none', 'neon', 'gradient', 'rainbow', 'pulse', 'aura', 'orbit', 'double'];
+const NAME_FX = ['none', 'glow', 'gradient', 'rainbow', 'shine', 'glitch', 'flicker'];
+const NAME_FONTS = ['default', 'serif', 'mono', 'script', 'heavy', 'wide'];
+const EFFECTS = ['none', 'snow', 'sparkles', 'hearts', 'embers', 'stars', 'sakura', 'bubbles'];
+const PLATES = ['none', 'aurora', 'sunset', 'ocean', 'void', 'grid', 'candy', 'forest'];
+const CARD_STYLES = ['default', 'glass', 'solid', 'outline'];
+const BADGES = ['early', 'gamer', 'music', 'dev', 'artist', 'night', 'streamer', 'cat', 'heart', 'star', 'bolt', 'skull'];
+const MAX_CHANNELS = 40;
+const STATUSES = ['online', 'idle', 'dnd', 'invisible'];
 
 const DEFAULT_CHANNELS = [
   { id: 'general', name: 'общий', type: 'text', category: 'Общее' },
@@ -37,6 +44,8 @@ const pubId = (uid) => crypto.createHash('sha256').update('corsa:' + uid).digest
 function str(v, max) {
   return typeof v === 'string' ? v.slice(0, max) : '';
 }
+
+const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => k in obj).map((k) => [k, obj[k]]));
 
 // Кастомные эмодзи: в тексте :имя:, ссылки приходят вместе с сообщением. Оставляем только
 // те имена, что реально есть в тексте, и только проверенные ссылки.
@@ -59,8 +68,27 @@ function cleanActivity(a) {
     state: str(a.state, 128),
     startedAt: Number.isFinite(a.startedAt) ? a.startedAt : null,
     image: sanitizeImageUrl(a.image) || null,
+    kind: a.kind === 'music' ? 'music' : 'game',
   };
   return out.name || out.details || out.state ? out : null;
+}
+
+const hexColor = (v) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : null);
+
+// Реакция: обычный эмодзи (до 16 символов, без букв и цифр) или свой :имя: со ссылкой.
+function reactionKey(v) {
+  if (typeof v !== 'string') return null;
+  if (/^:[A-Za-z0-9_]{2,32}:$/.test(v)) return v;
+  if (v.length > 16 || /[\p{L}\p{N}\s<>]/u.test(v) || !/\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(v)) return null;
+  return v;
+}
+
+function cleanChannel(c) {
+  if (!c || typeof c !== 'object' || !/^[a-z0-9_-]{1,24}$/i.test(c.id || '')) return null;
+  const type = c.type === 'voice' ? 'voice' : 'text';
+  const name = str(c.name, 32).trim();
+  if (!name) return null;
+  return { id: c.id, name, type, category: str(c.category, 32).trim() || (type === 'voice' ? 'Голосовые' : 'Общее'), topic: str(c.topic, 120), nsfw: !!c.nsfw };
 }
 
 // password: пароль сети (необязательно). tls: { key, cert } — включает wss. limits: переопределение ограничений (для тестов).
@@ -78,26 +106,38 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
   let heartbeat = null;
   // Права владельца только у владельца, который подключён с этого же компьютера (адрес 127.0.0.1 или ::1).
   const isOwner = (m) => !!ownerUid && m.uid === ownerUid && /^(127\.|::1$)/.test(m.ws.ip || '');
-  const channels = DEFAULT_CHANNELS.map((c) => ({ ...c }));
+  let channels = DEFAULT_CHANNELS.map((c) => cleanChannel(c));
+  let saved = null;
+  if (historyFile) {
+    try { saved = JSON.parse(fs.readFileSync(historyFile, 'utf8')); } catch (e) { /* первого файла может не быть */ }
+  }
+  // Каналы, которые владелец создал или переименовал, хранятся вместе с историей.
+  if (saved && saved.__room && Array.isArray(saved.__room.channels)) {
+    const list = saved.__room.channels.map(cleanChannel).filter(Boolean).slice(0, MAX_CHANNELS);
+    if (list.some((c) => c.type === 'text')) channels = list;
+  }
   const history = new Map(channels.filter((c) => c.type === 'text').map((c) => [c.id, []]));
+  const firstSeen = new Map(); // публичный id -> когда впервые зашёл
   const members = new Map(); // sid -> member
   let wss = null;
   let saveTimer = null;
 
-  if (historyFile) {
-    try {
-      const saved = JSON.parse(fs.readFileSync(historyFile, 'utf8'));
-      for (const [ch, list] of Object.entries(saved)) {
-        if (!history.has(ch) || !Array.isArray(list)) continue;
-        // Старые записи хранили настоящий uid: заменяем его публичным идентификатором.
-        for (const msg of list) if (msg && msg.uid && msg.uid.length !== 16) msg.uid = pubId(msg.uid);
-        history.set(ch, list.slice(-HISTORY_LIMIT));
-      }
-      if (saved.__room) room.banner = sanitizeImageUrl(saved.__room.banner);
-    } catch (e) { /* первого файла может не быть */ }
+  if (saved) {
+    for (const [ch, list] of Object.entries(saved)) {
+      if (!history.has(ch) || !Array.isArray(list)) continue;
+      // Старые записи хранили настоящий uid: заменяем его публичным идентификатором.
+      for (const msg of list) if (msg && msg.uid && msg.uid.length !== 16) msg.uid = pubId(msg.uid);
+      history.set(ch, list.slice(-HISTORY_LIMIT));
+    }
+    if (saved.__room) {
+      room.banner = sanitizeImageUrl(saved.__room.banner);
+      for (const [id, ts] of Object.entries(saved.__room.seen || {})) if (/^[0-9a-f]{16}$/.test(id) && Number.isFinite(ts)) firstSeen.set(id, ts);
+    }
   }
 
-  const snapshot = () => JSON.stringify({ ...Object.fromEntries(history), __room: { banner: room.banner } });
+  const snapshot = () => JSON.stringify({ ...Object.fromEntries(history), __room: { banner: room.banner, channels, seen: Object.fromEntries([...firstSeen].slice(-500)) } });
+  const roomInfo = () => ({ name: room.name, banner: room.banner, channels });
+  const findMsg = (channel, id) => (history.get(channel) || []).find((x) => x.id === id);
 
   function saveHistory() {
     if (!historyFile) return;
@@ -114,8 +154,13 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
       sid: m.sid, uid: pubId(m.uid), name: m.name, avatar: m.avatar, banner: m.banner, bg: m.bg, bio: m.bio,
       color: m.color, frame: m.frame, nameFx: m.nameFx, tag: m.tag, custom: m.custom, pronouns: m.pronouns,
       frameUrl: m.frameUrl, cardFrame: m.cardFrame,
+      color2: m.color2, nameColor: m.nameColor, nameColor2: m.nameColor2, nameFont: m.nameFont, effect: m.effect,
+      plate: m.plate, plateUrl: m.plateUrl, cardStyle: m.cardStyle, badges: m.badges, links: m.links,
       status: hidden ? 'offline' : m.status,
       activity: hidden ? null : m.activity,
+      since: firstSeen.get(pubId(m.uid)) || null, joinedAt: hidden ? null : m.joinedAt, host: isOwner(m),
+      // Состояние в голосе: микрофон, звук, показ экрана и чей экран смотрит.
+      muted: !!m.muted, deaf: !!m.deaf, screen: !!(m.voice && m.screen), watching: m.voice ? m.watching : null,
     };
   }
 
@@ -150,6 +195,53 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
     if (typeof p.tag === 'string') m.tag = str(p.tag, 4).trim();
     if (typeof p.custom === 'string') m.custom = str(p.custom, 60);
     if (typeof p.pronouns === 'string') m.pronouns = str(p.pronouns, 24);
+    // Оформление профиля: второй цвет карточки, цвет и шрифт имени, эффект, табличка, значки, ссылки.
+    for (const k of ['color2', 'nameColor', 'nameColor2']) if (k in p) m[k] = hexColor(p[k]);
+    if (NAME_FONTS.includes(p.nameFont)) m.nameFont = p.nameFont;
+    if (EFFECTS.includes(p.effect)) m.effect = p.effect;
+    if (PLATES.includes(p.plate)) m.plate = p.plate;
+    if ('plateUrl' in p) m.plateUrl = sanitizeImageUrl(p.plateUrl);
+    if (CARD_STYLES.includes(p.cardStyle)) m.cardStyle = p.cardStyle;
+    if (Array.isArray(p.badges)) m.badges = [...new Set(p.badges.filter((b) => BADGES.includes(b)))].slice(0, 6);
+    if (Array.isArray(p.links)) {
+      m.links = p.links.slice(0, 3).map((l) => ({ label: str(l && l.label, 20).trim(), url: str(l && l.url, 120).trim() })).filter((l) => l.label || l.url);
+    }
+  }
+
+  // Управление каналами (только владелец): добавить, изменить, удалить, переместить.
+  function editChannels(msg) {
+    const idx = channels.findIndex((c) => c.id === msg.id);
+    const ch = channels[idx];
+    if (msg.op === 'add') {
+      if (channels.length >= MAX_CHANNELS) return false;
+      const c = cleanChannel({ id: 'c' + crypto.randomBytes(4).toString('hex'), name: msg.name, type: msg.type, category: msg.category, topic: msg.topic, nsfw: msg.nsfw });
+      if (!c) return false;
+      channels.push(c);
+      if (c.type === 'text') history.set(c.id, []);
+      return true;
+    }
+    if (!ch) return false;
+    if (msg.op === 'edit') {
+      const c = cleanChannel({ ...ch, ...pick(msg, ['name', 'category', 'topic', 'nsfw']), id: ch.id, type: ch.type });
+      if (!c) return false;
+      channels[idx] = c;
+      return true;
+    }
+    if (msg.op === 'move') {
+      const to = idx + (msg.dir < 0 ? -1 : 1);
+      if (to < 0 || to >= channels.length) return false;
+      [channels[idx], channels[to]] = [channels[to], channels[idx]];
+      return true;
+    }
+    if (msg.op === 'delete') {
+      // Последний текстовый канал не удаляется: комнате нужен хотя бы один.
+      if (ch.type === 'text' && channels.filter((c) => c.type === 'text').length <= 1) return false;
+      channels.splice(idx, 1);
+      history.delete(ch.id);
+      for (const mem of members.values()) if (mem.voice === ch.id) { mem.voice = null; mem.screen = false; mem.watching = null; }
+      return true;
+    }
+    return false;
   }
 
   function failAuth(ws) {
@@ -183,15 +275,20 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
     const m = {
       ws, sid: crypto.randomUUID().slice(0, 8), uid, name: 'Гость', avatar: null, banner: null, bg: null, bio: '',
       color: null, frame: 'none', nameFx: 'none', tag: '', custom: '', pronouns: '', frameUrl: null, cardFrame: null,
-      status: msg.status === 'invisible' ? 'invisible' : 'online', activity: cleanActivity(msg.activity), voice: null,
+      color2: null, nameColor: null, nameColor2: null, nameFont: 'default', effect: 'none', plate: 'none', plateUrl: null,
+      cardStyle: 'default', badges: [], links: [],
+      status: STATUSES.includes(msg.status) ? msg.status : 'online', activity: cleanActivity(msg.activity), voice: null,
+      muted: false, deaf: false, screen: false, watching: null, joinedAt: Date.now(), typingAt: 0,
       stamps: [],
     };
     applyProfile(m, msg);
+    const pid = pubId(uid);
+    if (!firstSeen.has(pid)) { firstSeen.set(pid, Date.now()); saveHistory(); }
     members.set(m.sid, m);
     ws.sid = m.sid;
     send(ws, {
-      t: 'welcome', sid: m.sid, me: pubId(uid), owner: isOwner(m),
-      room: { name: room.name, banner: room.banner, channels },
+      t: 'welcome', sid: m.sid, me: pid, owner: isOwner(m),
+      room: roomInfo(),
       members: [...members.values()].map(pub),
       history: Object.fromEntries(history), voice: voiceState(),
     });
@@ -233,7 +330,7 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
         break;
       }
       case 'status':
-        m.status = msg.status === 'invisible' ? 'invisible' : 'online';
+        m.status = STATUSES.includes(msg.status) ? msg.status : 'online';
         broadcast({ t: 'member', member: pub(m) });
         break;
       case 'activity':
@@ -254,19 +351,106 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
           id: crypto.randomUUID().slice(0, 12), sid: m.sid, uid: pubId(m.uid), name: m.name, avatar: m.avatar,
           text, sticker, emojis: cleanEmojis(msg.emojis, text), ts: now,
         };
+        // Ответ на сообщение: сохраняем короткую цитату, чтобы её было видно, даже если оригинал удалят.
+        const orig = typeof msg.reply === 'string' ? findMsg(ch.id, msg.reply) : null;
+        if (orig) out.reply = { id: orig.id, name: orig.name, text: (orig.text || (orig.sticker ? 'стикер' : '')).slice(0, 100) };
         const list = history.get(ch.id);
         list.push(out);
         if (list.length > HISTORY_LIMIT) list.shift();
+        m.typingAt = 0;
         saveHistory();
         broadcast({ t: 'msg', channel: ch.id, msg: out });
+        break;
+      }
+      case 'edit': {
+        // Изменить можно только своё сообщение.
+        const target = findMsg(msg.channel, msg.id);
+        if (!target || target.uid !== pubId(m.uid)) return;
+        const text = str(msg.text, MAX_TEXT).trim();
+        if (!text && !target.sticker) return;
+        target.text = text;
+        target.emojis = cleanEmojis({ ...target.emojis, ...(msg.emojis || {}) }, text);
+        target.edited = Date.now();
+        saveHistory();
+        broadcast({ t: 'edit', channel: msg.channel, msg: target });
+        break;
+      }
+      case 'delete': {
+        // Удалить можно своё сообщение, владелец удаляет любое.
+        const list = history.get(msg.channel);
+        const target = findMsg(msg.channel, msg.id);
+        if (!target || (target.uid !== pubId(m.uid) && !isOwner(m))) return;
+        list.splice(list.indexOf(target), 1);
+        saveHistory();
+        broadcast({ t: 'delete', channel: msg.channel, id: target.id, by: m.sid });
+        break;
+      }
+      case 'react': {
+        const target = findMsg(msg.channel, msg.id);
+        const key = reactionKey(msg.emoji);
+        if (!target || !key) return;
+        const reactions = target.reactions || {};
+        const who = pubId(m.uid);
+        const list = reactions[key] || [];
+        if (list.includes(who)) list.splice(list.indexOf(who), 1);
+        else {
+          if (!reactions[key] && Object.keys(reactions).length >= 20) return;
+          // Свой эмодзи-реакция: ссылка только с проверенного сайта.
+          if (key.startsWith(':')) {
+            const url = sanitizeImageUrl(msg.url) || (target.remoji && target.remoji[key]);
+            if (!url) return;
+            target.remoji = { ...target.remoji, [key]: url };
+          }
+          list.push(who);
+        }
+        if (list.length) reactions[key] = list; else { delete reactions[key]; if (target.remoji) delete target.remoji[key]; }
+        target.reactions = reactions;
+        saveHistory();
+        broadcast({ t: 'react', channel: msg.channel, id: target.id, reactions, remoji: target.remoji || {} });
+        break;
+      }
+      case 'typing': {
+        // «Печатает…»: не чаще раза в две секунды, ничего не сохраняется.
+        const ch = channels.find((c) => c.id === msg.channel && c.type === 'text');
+        const now = Date.now();
+        if (!ch || now - m.typingAt < 2000) return;
+        m.typingAt = now;
+        const data = JSON.stringify({ t: 'typing', channel: ch.id, sid: m.sid });
+        for (const o of members.values()) if (o !== m && o.ws.readyState === 1) o.ws.send(data);
+        break;
+      }
+      case 'channel-set': {
+        if (!isOwner(m)) { send(ws, { t: 'error', text: 'Каналы меняет только владелец' }); return; }
+        if (!editChannels(msg)) return;
+        saveHistory();
+        broadcast({ t: 'room', room: roomInfo() });
+        broadcast({ t: 'voice', voice: voiceState() });
         break;
       }
       case 'voice': {
         const ch = channels.find((c) => c.id === msg.channel && c.type === 'voice');
         m.voice = ch ? ch.id : null;
+        if (!m.voice) { m.screen = false; m.watching = null; }
+        if (typeof msg.muted === 'boolean') m.muted = msg.muted;
+        if (typeof msg.deaf === 'boolean') m.deaf = msg.deaf;
         broadcast({ t: 'voice', voice: voiceState() });
+        broadcast({ t: 'member', member: pub(m) });
         break;
       }
+      case 'voice-flags':
+        if (typeof msg.muted === 'boolean') m.muted = msg.muted;
+        if (typeof msg.deaf === 'boolean') m.deaf = msg.deaf;
+        if (typeof msg.screen === 'boolean') m.screen = msg.screen;
+        if ('watching' in msg) {
+          const target = members.get(msg.watching);
+          m.watching = target && m.voice && target.voice === m.voice ? target.sid : null;
+        }
+        broadcast({ t: 'member', member: pub(m) });
+        break;
+      case 'ping':
+        // Задержка до сервера: клиент показывает её рядом с названием комнаты.
+        if (Number.isFinite(msg.ts)) send(ws, { t: 'pong', ts: msg.ts });
+        break;
       case 'rtc': {
         const target = members.get(msg.to);
         // Сигналы WebRTC идут только между участниками одного голосового канала.
@@ -366,7 +550,10 @@ function createRoomServer({ name, port, historyFile, ownerUid = '', password = '
     });
   }
 
-  return { start, stop, memberCount: () => members.size };
+  // Краткие сведения для поиска комнат в локальной сети.
+  const info = () => ({ name: room.name, locked: !!passKey, members: [...members.values()].filter((x) => x.status !== 'invisible').length, max: L.maxMembers });
+
+  return { start, stop, info, memberCount: () => members.size };
 }
 
 module.exports = { createRoomServer };

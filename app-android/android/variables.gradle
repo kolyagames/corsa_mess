@@ -1,5 +1,7 @@
 ext {
-    minSdkVersion = 22
+    // 23 (Android 6.0, 2015) — минимум, который требует androidx.security:security-crypto
+    // (хранит отпечатки серверов и пароль своей комнаты зашифрованными через Android Keystore).
+    minSdkVersion = 23
     compileSdkVersion = 34
     targetSdkVersion = 34
     androidxActivityVersion = '1.8.0'

@@ -51,7 +51,10 @@ jobs:
 
       - name: Build debug APK
         working-directory: app-android/android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle.log
+        shell: bash
+        # `tee` по себе маскирует код возврата gradle — без pipefail шаг считался бы успешным
+        # (echo $? показал бы код tee, а не gradle), даже если сама сборка упала.
+        run: set -o pipefail; ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle.log
 
       # Лог-файлы сборки раздаются с серверов, до которых у среды разработки нет сетевого доступа
       # (та же причина, по которой Android-сборка вообще делается здесь, а не локально) — поэтому
@@ -76,6 +79,7 @@ jobs:
         with:
           name: corsa-mess-android
           path: app-android/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
 
       # На тег-релиз (тот же релиз, которым публикуется Windows-сборка) добавляем apk рядом с exe.
       - name: Attach APK to release

@@ -51,9 +51,27 @@ jobs:
 
       - name: Build debug APK
         working-directory: app-android/android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle.log
+
+      # Лог-файлы сборки раздаются с серверов, до которых у среды разработки нет сетевого доступа
+      # (та же причина, по которой Android-сборка вообще делается здесь, а не локально) — поэтому
+      # при ошибке конец лога публикуется отдельным, доступным для чтения способом: комментарием к коммиту.
+      - name: Post build log on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tail -c 60000 app-android/android/gradle.log > /tmp/tail.log || echo "(лог не найден)" > /tmp/tail.log
+          {
+            echo "### Android CI: сборка упала"
+            echo '```'
+            cat /tmp/tail.log
+            echo '```'
+          } > /tmp/comment.md
+          gh api -X POST "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -f body=@/tmp/comment.md
 
       - name: Upload APK artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: corsa-mess-android

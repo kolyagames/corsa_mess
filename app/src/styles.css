@@ -218,6 +218,8 @@ input[type=color] { width: 48px; height: 32px; border: 0; padding: 0; background
 .modal.wide { width: min(980px, 94vw); height: 80vh; flex-direction: row; }
 .modal .close { position: absolute; right: 10px; top: 10px; z-index: 2; }
 .modal-body { padding: 22px; overflow-y: auto; }
+.settings-wrap { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.settings-back { display: none; }
 .settings-nav { width: 230px; background: var(--bg-0); padding: 16px 10px; overflow-y: auto; flex: none; }
 .settings-body { flex: 1; padding: 26px 34px; overflow-y: auto; }
 .settings-body h2 { margin-top: 0; }
@@ -393,3 +395,25 @@ input[type=color] { width: 48px; height: 32px; border: 0; padding: 0; background
 .speaking .avatar, .avatar.speaking { animation: ring-pulse 1.2s ease-in-out infinite; }
 .tile.speaking { animation: ring-pulse 1.2s ease-in-out infinite; }
 body.no-anim *, body.no-anim *::before, body.no-anim *::after { animation: none !important; transition: none !important; }
+
+/* ---------- Узкий экран (телефон) ----------
+   На столе #app показывает рейл комнат, список каналов, чат и участников одновременно —
+   на ширине телефона это физически не помещается. Ниже порога видна одна панель разом,
+   как в любом мобильном мессенджере: рейл комнат остаётся полоской слева, список каналов
+   или открытый канал занимают всё остальное место, переключение — через data-mpane на body
+   (его выставляет setMobilePane в app.js) и кнопку "назад" (.mobile-back). Список участников
+   (.right) на этой ширине временно не показывается — отдельная панель для него появится позже. */
+.mobile-back { display: none; position: fixed; top: 7px; left: 70px; z-index: 6; width: 30px; height: 30px; border-radius: var(--r-sm); border: none; background: var(--panel); color: var(--text); align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--glow-soft); }
+@media (max-width: 760px) {
+  .side, .main { width: 100%; }
+  body[data-mpane="side"] .main { display: none; }
+  body[data-mpane="main"] .side { display: none; }
+  body[data-mpane="main"] .mobile-back { display: flex; }
+  .right { display: none !important; }
+
+  .modal.wide { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
+  .settings-nav, .settings-body { width: 100%; flex: none; }
+  .settings-wrap:not(.show-body) .settings-body { display: none; }
+  .settings-wrap.show-body .settings-nav { display: none; }
+  .settings-back { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--muted); font: inherit; padding: 0 0 16px; cursor: pointer; }
+}

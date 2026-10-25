@@ -518,6 +518,7 @@
     S.dmUnread[peer] = 0;
     updateTitle();
     renderAll();
+    setMobilePane('main');
   }
 
   function toggleBlock(pub, name) {
@@ -777,7 +778,7 @@
     const nav = (icon, label, view, extra, ch) => {
       const node = h('div', {
         class: 'nav' + (S.view.type === view.type && S.view.channel === view.channel ? ' on' : ''),
-        onclick: () => { S.view = view; if (view.channel) { S.unread[view.channel] = 0; S.mentions[view.channel] = 0; } updateTitle(); renderAll(); },
+        onclick: () => { S.view = view; if (view.channel) { S.unread[view.channel] = 0; S.mentions[view.channel] = 0; } updateTitle(); renderAll(); setMobilePane('main'); },
         oncontextmenu: ch && ch.type === 'text' ? (e) => {
           const muted = isMutedChannel(ch.id);
           contextMenu(e, [{ label: muted ? '{{ic:bell}} Снова уведомлять' : '{{ic:bell-off}} Не уведомлять (кроме упоминаний)', onclick: () => {
@@ -971,6 +972,11 @@
       h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '14px' } },
         h('button', { class: 'btn', onclick: () => { cancelReconnect(); S.view = { type: 'home' }; renderAll(); } }, 'Отмена')))));
   }
+
+  // На узком экране (телефон) видна только одна панель разом: список комнат и каналов ("side")
+  // или открытый канал/беседа ("main"). Шире определённой ширины переключатель ничего не делает —
+  // там видно всё сразу, как на столе.
+  const setMobilePane = (p) => { document.body.dataset.mpane = p; };
 
   // Переходы между экранами идут через renderAll: именно здесь запускается анимация появления.
   function renderAll() {
@@ -2778,16 +2784,20 @@
     let current = sections.find((s) => s[0] === start) ? start : 'profile';
     const nav = h('div', { class: 'settings-nav' });
     const body = h('div', { class: 'settings-body' });
+    // На узком экране показывается только одна панель разом (список разделов или сам раздел),
+    // как в мобильном интерфейсе — переключает класс на обёртке, а не версия модалки.
+    const wrap = h('div', { class: 'settings-wrap' }, nav, body);
+    const back = h('button', { class: 'settings-back', onclick: () => wrap.classList.remove('show-body') }, '{{ic:chevron-left}} Настройки');
     const draw = () => {
       nav.replaceChildren(h('div', { class: 'group-label' }, 'Настройки'), ...sections.map(([id, label]) =>
-        h('div', { class: 'nav' + (id === current ? ' on' : ''), onclick: () => { current = id; draw(); body.scrollTop = 0; } }, label)),
+        h('div', { class: 'nav' + (id === current ? ' on' : ''), onclick: () => { current = id; wrap.classList.add('show-body'); draw(); body.scrollTop = 0; } }, label)),
       h('div', { style: { padding: '14px 12px' } }, h('button', { class: 'btn', onclick: () => { dlg.close(); if (S.conn) disconnect(); } }, S.conn ? 'Отключиться от комнаты' : 'Закрыть')));
       const fn = sections.find((s) => s[0] === current)[2];
       const top = body.scrollTop;
-      body.replaceChildren(fn(draw));
+      body.replaceChildren(back, fn(draw));
       body.scrollTop = top;
     };
-    const dlg = modal(h('div', { style: { display: 'flex', width: '100%', minHeight: 0 } }, nav, body), { wide: true, onClose: () => { S.profileDraft = null; } });
+    const dlg = modal(wrap, { wide: true, onClose: () => { S.profileDraft = null; } });
     draw();
   }
 
@@ -2819,7 +2829,12 @@
     el.side = h('div', { class: 'side' });
     el.main = h('div', { class: 'main' });
     el.right = h('div', { class: 'right' });
-    app.append(el.rail, el.side, el.main, el.right);
+    // Кнопка "назад" к списку каналов — видна только на узком экране, когда открыт канал/беседа
+    // (см. .mobile-back в styles.css). Отдельный элемент, а не часть main-head: контент .main
+    // целиком перерисовывается при каждом переходе, а эта кнопка должна пережить перерисовку.
+    el.mobileBack = h('button', { class: 'mobile-back', title: 'К списку каналов', onclick: () => setMobilePane('side') }, '{{ic:chevron-left}}');
+    app.append(el.rail, el.side, el.main, el.right, el.mobileBack);
+    setMobilePane('side');
     renderAll();
     native.presenceConfig({ resolveNames: S.settings.resolveNames });
     await C.themes.refresh();

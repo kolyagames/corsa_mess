@@ -1,0 +1,67 @@
+name: Android
+
+# Сборка Android-версии corsa-mess. Запускается на инфраструктуре GitHub, где уже есть Android SDK —
+# локально у разработчиков его может не быть, а скачивать несколько гигабайт SDK на каждую машину не нужно.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/src/**'
+      - 'app/shared/**'
+      - 'app-android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'app/src/**'
+      - 'app/shared/**'
+      - 'app-android/**'
+  workflow_dispatch: {}
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
+        working-directory: app-android
+        run: npm install
+
+      - name: Build web assets from app/src
+        working-directory: app-android
+        run: npm run build-www
+
+      - name: Sync Capacitor Android project
+        working-directory: app-android
+        run: npx cap sync android
+
+      - name: Make gradlew executable
+        run: chmod +x app-android/android/gradlew
+
+      - name: Build debug APK
+        working-directory: app-android/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: corsa-mess-android
+          path: app-android/android/app/build/outputs/apk/debug/app-debug.apk
+
+      # На тег-релиз (тот же релиз, которым публикуется Windows-сборка) добавляем apk рядом с exe.
+      - name: Attach APK to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app-android/android/app/build/outputs/apk/debug/app-debug.apk

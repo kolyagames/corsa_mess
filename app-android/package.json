@@ -1,0 +1,22 @@
+{
+  "name": "corsa-mess-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "corsa-mess для Android — Capacitor-обёртка над общим интерфейсом из app/src",
+  "scripts": {
+    "build-www": "node scripts/build-www.js",
+    "sync": "npm run build-www && npx cap sync android",
+    "open": "npm run sync && npx cap open android"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@capacitor/android": "^6.2.2",
+    "@capacitor/app": "^6.0.3",
+    "@capacitor/cli": "^6.2.2",
+    "@capacitor/core": "^6.2.2",
+    "@capacitor/filesystem": "^6.0.4",
+    "@capacitor/local-notifications": "^6.1.3",
+    "@capacitor/preferences": "^6.0.4",
+    "@capacitor/share": "^6.0.4"
+  }
+}

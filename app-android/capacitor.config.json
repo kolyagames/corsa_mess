@@ -1,0 +1,11 @@
+{
+  "appId": "com.kolyagames.corsamess",
+  "appName": "corsa-mess",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

@@ -50,8 +50,9 @@
       return new Promise((resolve, reject) => {
         let settled = false;
         let ws;
-        // Всегда шифрованное соединение (wss). Сертификат сервера закрепляется в главном процессе.
-        try { ws = new WebSocket(`wss://${this.host}:${this.port}`); } catch (e) { reject(e); return; }
+        // Всегда шифрованное соединение (wss). Сертификат сервера закрепляется в главном процессе
+        // (Electron) или в нативном Android-плагине (CorsaWebSocket, см. app-android/android-src).
+        try { ws = new (window.CorsaWebSocket || WebSocket)(`wss://${this.host}:${this.port}`); } catch (e) { reject(e); return; }
         this.ws = ws;
         const fail = (err) => { if (!settled) { settled = true; clearTimeout(timer); try { ws.close(); } catch (e) { /* ignore */ } reject(err); } };
         const coded = (code, text) => Object.assign(new Error(text), { code });

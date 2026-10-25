@@ -58,20 +58,25 @@ jobs:
 
       # Лог-файлы сборки раздаются с серверов, до которых у среды разработки нет сетевого доступа
       # (та же причина, по которой Android-сборка вообще делается здесь, а не локально) — поэтому
-      # при ошибке конец лога публикуется отдельным, доступным для чтения способом: комментарием к коммиту.
+      # при ошибке конец лога печатается ещё и как аннотация (::error::), её видно через `gh run view`
+      # без скачивания логов. Аннотации режутся по размеру, поэтому это несколько кусков помельче.
       - name: Post build log on failure
         if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          tail -c 60000 app-android/android/gradle.log > /tmp/tail.log || echo "(лог не найден)" > /tmp/tail.log
-          {
-            echo "### Android CI: сборка упала"
-            echo '```'
-            cat /tmp/tail.log
-            echo '```'
-          } > /tmp/comment.md
-          gh api -X POST "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -f body=@/tmp/comment.md
+          python3 - <<'PYEOF'
+          import re
+          try:
+              data = open('app-android/android/gradle.log', encoding='utf-8', errors='replace').read()
+          except FileNotFoundError:
+              data = '(gradle.log не найден)'
+          tail = data[-6000:]
+          chunk = 3500
+          for i in range(0, len(tail), chunk):
+              part = tail[i:i + chunk]
+              part = part.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error::gradle[{i // chunk + 1}] {part}')
+          PYEOF
 
       - name: Upload APK artifact
         if: success()
